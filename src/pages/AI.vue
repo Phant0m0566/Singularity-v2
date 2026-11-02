@@ -141,7 +141,7 @@ function handleFiles(event: Event) {
       input.value = '';
     })
     .catch(() => {
-      error.value = 'Could not read one or more images.';
+      error.value = 'Could not read images.';
       input.value = '';
     });
 }
@@ -210,7 +210,7 @@ async function send() {
 
   try {
     if (hasImages && provider !== 'gemini') {
-      throw new Error('Image uploads are currently only supported for Gemini models.');
+      throw new Error('Image uploads arent working :(');
     }
 
     const payload: Record<string, unknown> = {
