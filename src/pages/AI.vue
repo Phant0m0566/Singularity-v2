@@ -52,17 +52,13 @@ function makeChatName(messages: ChatMessage[]) {
 
 function loadSavedChats() {
   try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY); 
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
     if (!raw) return;
 
     const parsed = JSON.parse(raw) as SavedChat[];
     if (!Array.isArray(parsed)) return;
 
     chats.value = parsed;
-    if (parsed.length) {
-      history.value = parsed[0].messages || [];
-      activeChatId.value = parsed[0].id || null;
-    }
   } catch {
     // no-op
   }
@@ -197,14 +193,14 @@ async function send() {
 
   const [provider, model] = selected.value.split('|');
   error.value = '';
-
-  const userImages = selectedImages.value.map((item) => item.dataUrl);
-  history.value.push({
-    role: 'user',
+  const userEntry = {
+    role: 'user' as const,
     content: text || 'Image upload',
-    images: userImages.length ? userImages : undefined,
-  });
+    images: selectedImages.value.map((item) => item.dataUrl).length ? selectedImages.value.map((item) => item.dataUrl) : undefined,
+  };
 
+  const userIndex = history.value.length;
+  history.value.push(userEntry);
   message.value = '';
   selectedImages.value = [];
   if (fileInput.value) fileInput.value.value = '';
@@ -244,11 +240,9 @@ async function send() {
     history.value.push({ role: 'assistant', content: reply || '(empty response ig)' });
     persistCurrentChat();
   } catch (err) {
-    history.value = history.value.filter((entry) => {
-      if (entry.role !== 'user') return true;
-      if (entry.content !== (text || 'Image upload')) return true;
-      return !entry.images || !entry.images.length;
-    });
+    if (userIndex >= 0 && history.value[userIndex]?.role === 'user') {
+      history.value.splice(userIndex, 1);
+    }
     error.value = err instanceof Error ? err.message : 'Something went wrong ( of course ).';
   } finally {
     loading.value = false;
