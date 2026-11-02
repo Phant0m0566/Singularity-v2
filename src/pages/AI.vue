@@ -60,7 +60,7 @@ function loadSavedChats() {
 
     chats.value = parsed;
   } catch {
-    // no-op
+   
   }
 }
 
@@ -70,7 +70,7 @@ function saveChats() {
     localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(ordered));
     chats.value = ordered;
   } catch {
-    // no-op
+
   }
 }
 
