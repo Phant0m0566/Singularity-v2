@@ -17,7 +17,7 @@ onUnmounted(() => {
     <div class="chatPage" data-chat-root>
         <section class="chatRoom" id="chatRoom" inert>
             <div class="chatMessage" id="chatMessages" role="log" aria-live="polite">
-                <p class="chatEmpty" id="chatEmpty">no messages yet, say hi.</p>
+                <p class="chatEmpty" id="chatEmpty">No Messages Yet, Say Hi.</p>
             </div>
             <p class="chatError roomError" id="chatRoomError" role="alert" hidden></p>
             <form class="chatInputArea" id="chatMessageForm" hidden>
@@ -38,7 +38,7 @@ onUnmounted(() => {
         <section class="chatJoinPanel" id="chatJoinPanel">
             <div class="chatJoinCard">
                 <h1 class="joinCardTitle" id="joinCardTitle">Join the Chat</h1>
-                <p class="joinCardSubtitle">Make a username to chat</p>
+                <p class="joinCardSubtitle">Make a username to join the chat!</p>
                 <form class="joinForm" id="chatJoinForm">
                     <span class="joinCardUsername" id="usernameText">Username</span>
                     <input
