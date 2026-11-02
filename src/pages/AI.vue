@@ -59,9 +59,9 @@ async function send() {
       data && data.candidates && data.candidates[0] && data.candidates[0].content
         ? data.candidates[0].content.parts.map((p: { text?: string }) => p.text || '').join('')
         : '';
-    history.value.push({ role: 'assistant', content: reply || '(empty response)' });
+    history.value.push({ role: 'assistant', content: reply || '(empty response ig)' });
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Something went wrong.';
+    error.value = err instanceof Error ? err.message : 'Something went wrong ( of course ).';
   } finally {
     loading.value = false;
     scrollDown();
