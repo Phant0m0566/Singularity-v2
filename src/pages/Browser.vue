@@ -63,9 +63,12 @@ function getController() {
     const transport = new LibcurlTransport({ wisp: wispUrl() });
     await transport.init();
 
+    // the controller reads these paths from `config`, not `scramjetConfig`,
+    // otherwise it falls back to /scramjet/... and gets index.html back
     const controller = new g.$scramjetController.Controller({
       serviceworker,
       transport,
+      config: SCRAM_PATHS,
       scramjetConfig: { ...g.$scramjet.defaultConfig, ...SCRAM_PATHS },
     });
     await controller.wait();
