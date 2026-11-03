@@ -28,6 +28,7 @@ const PROVIDERS = {
 const RETRY_STATUSES = [401, 403, 429, 500, 502, 503];
 const MAX_CONTENT_CHARS = 4000000;
 const MAX_TURNS = 40;
+const DEFAULT_MAX_TOKENS = 2048;
 
 const IMPORT_MAX_TRACKS = 300;
 
@@ -306,8 +307,11 @@ const openaiCompat = (getBase, { stripThink = false, extra = () => ({}) } = {}) 
 const CALLERS = {
 	async gemini(key, model, turns, cfg, body) {
 		const contents = Array.isArray(body.contents)
-			? body.contents
+			? body.contents.slice()
 			: turns.map((t) => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.text }] }));
+
+		while (contents.length && contents[0] && contents[0].role === "model") contents.shift();
+		if (!contents.length) throw new UpstreamError(400, "Invalid messages");
 		const payload = {
 			contents,
 			generationConfig: { temperature: cfg.temperature, maxOutputTokens: cfg.maxTokens },
@@ -324,7 +328,11 @@ const CALLERS = {
 
 	groq: openaiCompat(
 		() => (process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, ""),
-		{ stripThink: true }
+		{
+			stripThink: true,
+	
+			extra: (model) => (/^openai\/gpt-oss/.test(model) ? { reasoning_effort: "low" } : {}),
+		}
 	),
 
 	async claude(key, model, turns, cfg, body) {
@@ -387,9 +395,11 @@ async function chat(body, reply, res) {
 	const gc = body.generationConfig || {};
 	const cfg = {
 		temperature: clamp(body.temperature ?? gc.temperature, 0.7, 0, 2),
-		maxTokens: Math.round(clamp(body.max_tokens ?? gc.maxOutputTokens, 1024, 1, 8192)),
+		maxTokens: Math.round(clamp(body.max_tokens ?? gc.maxOutputTokens, DEFAULT_MAX_TOKENS, 1, 8192)),
 	};
 	const turns = toTurns(body).filter((t) => t.text);
+
+	while (turns.length && turns[0].role === "assistant") turns.shift();
 	if (!turns.length) return reply(400, { error: { message: "Invalid messages" } });
 
 	const caller = CALLERS[provider];
