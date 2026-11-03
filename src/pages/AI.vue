@@ -4,10 +4,19 @@ import { nextTick, onMounted, ref } from 'vue';
 
 const API_URL = '/api/worker';
 const CHAT_STORAGE_KEY = 'sg-ai-chat-saves-v1';
+const MAX_SAVED_CHATS = 50;
+const MAX_IMAGES = 4;
+const MAX_IMAGE_SIDE = 1280;
+const HISTORY_LIMIT = 30;
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string; images?: string[] };
 type ProviderModels = { provider: string; models: string[] };
 type SavedChat = { id: string; name: string; updatedAt: number; messages: ChatMessage[] };
+type ApiResponse = {
+  error?: string | { message?: string };
+  providers?: ProviderModels[];
+  candidates?: { content?: { parts?: { text?: string }[] } }[];
+};
 
 const message = ref('');
 const loading = ref(false);
@@ -26,12 +35,12 @@ onMounted(async () => {
 
   try {
     const res = await fetch(API_URL + '?models');
-    const data = await res.json();
+    const data = (await res.json()) as ApiResponse;
     providers.value = data.providers || [];
     const first = providers.value[0];
     if (first && first.models.length) selected.value = first.provider + '|' + first.models[0];
   } catch {
-    // no-op
+    error.value = 'Could not load models.';
   }
 });
 
@@ -55,47 +64,40 @@ function loadSavedChats() {
     const raw = localStorage.getItem(CHAT_STORAGE_KEY);
     if (!raw) return;
 
-    const parsed = JSON.parse(raw) as SavedChat[];
+    const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return;
 
-    chats.value = parsed;
+    chats.value = (parsed as SavedChat[])
+      .filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   } catch {
-   
+    chats.value = [];
   }
 }
 
 function saveChats() {
+  const ordered = [...chats.value].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_SAVED_CHATS);
+  chats.value = ordered;
   try {
-    const ordered = [...chats.value].sort((a, b) => b.updatedAt - a.updatedAt);
     localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(ordered));
-    chats.value = ordered;
   } catch {
 
   }
 }
 
-function persistCurrentChat() {
-  if (!history.value.length) return;
-
-  const id = activeChatId.value || uid();
-  activeChatId.value = id;
-
-  const candidate = history.value.filter((entry) => (entry.content || '').trim() || (entry.images || []).length);
+function persistChat(id: string, messages: ChatMessage[]) {
+  const candidate = messages
+    .filter((entry) => (entry.content || '').trim())
+    .map((entry) => ({ role: entry.role, content: entry.content }));
   if (!candidate.length) return;
 
   const existing = chats.value.filter((chat) => chat.id !== id);
-  const next: SavedChat = {
-    id,
-    name: makeChatName(candidate),
-    updatedAt: Date.now(),
-    messages: candidate,
-  };
-
-  chats.value = [next, ...existing];
+  chats.value = [{ id, name: makeChatName(candidate), updatedAt: Date.now(), messages: candidate }, ...existing];
   saveChats();
 }
 
 function startNewChat() {
+  if (loading.value) return;
   history.value = [];
   activeChatId.value = null;
   error.value = '';
@@ -105,7 +107,8 @@ function startNewChat() {
 }
 
 function openChat(chat: SavedChat) {
-  history.value = chat.messages || [];
+  if (loading.value) return;
+  history.value = [...(chat.messages || [])];
   activeChatId.value = chat.id;
   error.value = '';
   message.value = '';
@@ -115,16 +118,38 @@ function openChat(chat: SavedChat) {
 
 function readImageData(file: File) {
   return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Failed to read image'));
-    reader.readAsDataURL(file);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas unavailable'));
+        return;
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to read image'));
+    };
+    img.src = url;
   });
 }
 
 function handleFiles(event: Event) {
   const input = event.target as HTMLInputElement;
-  const files = Array.from(input.files || []).filter((file) => file.type.startsWith('image/'));
+  const room = MAX_IMAGES - selectedImages.value.length;
+  const files = Array.from(input.files || [])
+    .filter((file) => file.type.startsWith('image/'))
+    .slice(0, Math.max(room, 0));
   if (!files.length) {
     input.value = '';
     return;
@@ -137,7 +162,7 @@ function handleFiles(event: Event) {
     })),
   )
     .then((results) => {
-      selectedImages.value = [...selectedImages.value, ...results].slice(0, 4);
+      selectedImages.value = [...selectedImages.value, ...results].slice(0, MAX_IMAGES);
       input.value = '';
     })
     .catch(() => {
@@ -150,11 +175,13 @@ function removeImage(index: number) {
   selectedImages.value.splice(index, 1);
 }
 
+type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string } };
+
 function buildGeminiParts(turns: ChatMessage[]) {
-  const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> }> = [];
+  const contents: Array<{ role: 'user' | 'model'; parts: GeminiPart[] }> = [];
 
   for (const turn of turns) {
-    const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
+    const parts: GeminiPart[] = [];
 
     if (turn.content && turn.content.trim()) parts.push({ text: turn.content });
 
@@ -163,8 +190,8 @@ function buildGeminiParts(turns: ChatMessage[]) {
       if (match) {
         parts.push({
           inlineData: {
-            mimeType: match[1],
-            data: match[2],
+            mimeType: match[1] as string,
+            data: match[2] as string,
           },
         });
       }
@@ -181,72 +208,96 @@ function buildGeminiParts(turns: ChatMessage[]) {
   return contents;
 }
 
+function recentTurns() {
+  const turns = history.value.slice(-HISTORY_LIMIT);
+  while (turns.length && turns[0]?.role === 'assistant') turns.shift();
+  return turns;
+}
+
 async function scrollDown() {
   await nextTick();
   if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
 }
 
+function onEnter(event: KeyboardEvent) {
+  if (event.isComposing) return;
+  event.preventDefault();
+  send();
+}
+
 async function send() {
   const text = message.value.trim();
-  const hasImages = selectedImages.value.length > 0;
+  const draftImages = selectedImages.value;
+  const hasImages = draftImages.length > 0;
   if ((!text && !hasImages) || loading.value || !selected.value) return;
 
-  const [provider, model] = selected.value.split('|');
-  error.value = '';
-  const userEntry = {
-    role: 'user' as const,
-    content: text || 'Image upload',
-    images: selectedImages.value.map((item) => item.dataUrl).length ? selectedImages.value.map((item) => item.dataUrl) : undefined,
-  };
+  const [provider = '', model = ''] = selected.value.split('|');
 
+
+  if (hasImages && provider !== 'gemini') {
+    error.value = 'Image uploads only work with Gemini models.';
+    return;
+  }
+
+  error.value = '';
+  const chatId = activeChatId.value ?? uid();
+  activeChatId.value = chatId;
+
+  const imageUrls = draftImages.map((item) => item.dataUrl);
   const userIndex = history.value.length;
-  history.value.push(userEntry);
+  history.value.push({
+    role: 'user',
+    content: text || 'Image upload',
+    images: imageUrls.length ? imageUrls : undefined,
+  });
   message.value = '';
   selectedImages.value = [];
   if (fileInput.value) fileInput.value.value = '';
   loading.value = true;
-  persistCurrentChat();
   scrollDown();
 
   try {
-    if (hasImages && provider !== 'gemini') {
-      throw new Error('Image uploads arent working :(');
-    }
+    const recent = recentTurns();
+  
+    const useContents = provider === 'gemini' && recent.some((turn) => turn.images && turn.images.length);
 
-    const payload: Record<string, unknown> = {
-      provider,
-      model,
-      messages: history.value.slice(-30),
-    };
-
-    if (hasImages) {
-      payload.contents = buildGeminiParts(history.value.slice(-30));
-      delete payload.messages;
-    }
+    const payload = useContents
+      ? { provider, model, contents: buildGeminiParts(recent) }
+      : { provider, model, messages: recent.map((turn) => ({ role: turn.role, content: turn.content })) };
 
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error((data && data.error && data.error.message) || 'Request failed');
 
-    const reply =
-      data && data.candidates && data.candidates[0] && data.candidates[0].content
-        ? data.candidates[0].content.parts.map((p: { text?: string }) => p.text || '').join('')
-        : '';
+    let data: ApiResponse | null = null;
+    try {
+      data = (await res.json()) as ApiResponse;
+    } catch {
+
+    }
+
+    if (!res.ok) {
+      const apiError = data?.error;
+      const apiMessage = typeof apiError === 'string' ? apiError : apiError?.message;
+      throw new Error(apiMessage || 'Request failed (' + res.status + ')');
+    }
+
+    const reply = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
 
     history.value.push({ role: 'assistant', content: reply || '(empty response ig)' });
-    persistCurrentChat();
+    persistChat(chatId, history.value);
   } catch (err) {
-    if (userIndex >= 0 && history.value[userIndex]?.role === 'user') {
+    if (history.value[userIndex]?.role === 'user') {
       history.value.splice(userIndex, 1);
     }
+ 
+    if (!message.value) message.value = text;
+    if (!selectedImages.value.length) selectedImages.value = draftImages;
     error.value = err instanceof Error ? err.message : 'Something went wrong ( of course ).';
   } finally {
     loading.value = false;
-    persistCurrentChat();
     scrollDown();
   }
 }
@@ -256,7 +307,7 @@ async function send() {
   <div class="aiPage">
     <div class="aiShell">
       <aside class="aiSidebar">
-        <button class="newChatBtn" type="button" @click="startNewChat">
+        <button class="newChatBtn" type="button" :disabled="loading" @click="startNewChat">
           <Plus :size="16" />
           <span>New chat</span>
         </button>
@@ -268,6 +319,8 @@ async function send() {
             type="button"
             class="aiChatItem"
             :class="{ active: activeChatId === chat.id }"
+            :title="chat.name"
+            :disabled="loading"
             @click="openChat(chat)"
           >
             {{ chat.name }}
@@ -276,6 +329,13 @@ async function send() {
       </aside>
 
       <main class="aiChat">
+        <div class="aiMobileBar">
+          <button class="aiMobileNew" type="button" :disabled="loading" @click="startNewChat">
+            <Plus :size="16" />
+            <span>New chat</span>
+          </button>
+        </div>
+
         <div v-if="history.length || error" class="aiMessages" ref="messagesEl">
           <div
             v-for="(m, i) in history"
@@ -300,7 +360,7 @@ async function send() {
         <div class="aiInputArea" id="aiInputArea">
           <div v-if="selectedImages.length" class="aiUploadRow">
             <div v-for="(image, index) in selectedImages" :key="image.file.name + index" class="aiUploadCard">
-              <button class="aiUploadRemove" type="button" @click="removeImage(index)">
+              <button class="aiUploadRemove" type="button" aria-label="Remove image" @click="removeImage(index)">
                 <X :size="12" />
               </button>
               <img :src="image.dataUrl" :alt="image.file.name" />
@@ -337,8 +397,7 @@ async function send() {
               name="message"
               type="text"
               placeholder="Type Here..."
-              required
-              @keydown.enter.prevent="send"
+              @keydown.enter="onEnter"
             >
 
             <button
@@ -406,6 +465,13 @@ async function send() {
   cursor: pointer;
 }
 
+.newChatBtn:disabled,
+.aiChatItem:disabled,
+.aiMobileNew:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .aiChatList {
   display: flex;
   flex-direction: column;
@@ -443,6 +509,25 @@ async function send() {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+.aiMobileBar {
+  display: none;
+}
+
+.aiMobileNew {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 2px solid var(--sg-border);
+  border-radius: 8px;
+  background: var(--sg-surface);
+  color: var(--sg-text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .aiMessages {
@@ -691,6 +776,12 @@ async function send() {
   .aiSidebar {
     display: none;
   }
+
+  .aiMobileBar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px clamp(14px, 3vw, 32px) 0;
+  }
 }
 
 @media (max-width: 600px) {
@@ -701,6 +792,10 @@ async function send() {
 
   .aiMessages {
     padding: 12px 10px 10px;
+  }
+
+  .aiMobileBar {
+    padding: 8px 10px 0;
   }
 
   .aiModelSelect {
