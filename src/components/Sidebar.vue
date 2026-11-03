@@ -26,9 +26,9 @@ import { RouterLink } from 'vue-router';
         <GamepadDirectional />
       </RouterLink>
 
-      <button type="button" class="sg-rail-btn" aria-label="Browser">
+      <RouterLink to="/browser" class="sg-rail-btn" exact-active-class="active" aria-label="Browser">
         <Globe />
-      </button>
+      </RouterLink>
       <button type="button" class="sg-rail-btn" aria-label="Watch">
          <Play />
       </button>

@@ -1,13 +1,23 @@
 <script setup>
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { siDiscord } from 'simple-icons';
+
+const router = useRouter();
+const search = ref('');
+
+function submitSearch() {
+    const q = search.value.trim();
+    if (q) router.push({ name: 'browser', query: { q } });
+}
 </script>
 <template>
     <div class="homePage">
         <div class="titleArea">
             <h1 class="siteTitle">Singularity <span>V2</span></h1>
         </div>
-        <form id="homepageSearchbar" class="homepageSearchbar">
-            <input id="browserAddress" type="text" placeholder="Search the web..." />
+        <form id="homepageSearchbar" class="homepageSearchbar" @submit.prevent="submitSearch">
+            <input id="browserAddress" v-model="search" type="text" placeholder="Search the web..." />
         </form>
         <a
             class="discordInvite"
