@@ -135,6 +135,7 @@ function startLumin(el: HTMLElement) {
         theme: 'dark',
         columns: 8,
         rows: 4,
+        gamesPerPage: 10000,
         onError: (err: Error) => console.error('lumin:', err),
       }),
     )
