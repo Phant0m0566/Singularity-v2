@@ -12,5 +12,8 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/wisp", "/wisp/*"]
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:5173"
   }
 }
