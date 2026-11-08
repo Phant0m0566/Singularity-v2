@@ -1,13 +1,17 @@
-import api from "../api/worker.js";
-import { handleWisp } from "./wisp.js";
+import { handleWispRequest } from "./wisp.js";
 
 export default {
-	async fetch(request, env, ctx) {
-		const { pathname } = new URL(request.url);
+  async fetch(request, env) {
+    const url = new URL(request.url);
 
-		if (pathname === "/wisp" || pathname.startsWith("/wisp/")) return handleWisp(request);
-		if (pathname === "/api/worker" || pathname.startsWith("/api/worker/")) return api.fetch(request, env, ctx);
+    if (url.pathname === "/wisp" || url.pathname.startsWith("/wisp/")) {
+      return handleWispRequest(request, env);
+    }
 
-		return env.ASSETS.fetch(request);
-	},
+    if (url.pathname.startsWith("/api/")) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    return env.ASSETS.fetch(request);
+  },
 };
