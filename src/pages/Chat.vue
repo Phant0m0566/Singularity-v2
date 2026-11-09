@@ -38,20 +38,32 @@ onUnmounted(() => {
         <section class="chatJoinPanel" id="chatJoinPanel">
             <div class="chatJoinCard">
                 <h1 class="joinCardTitle" id="joinCardTitle">Join the Chat</h1>
-                <p class="joinCardSubtitle">Make a username to join the chat!</p>
+                <p class="joinCardSubtitle">Make a username and password to join the chat!</p>
                 <form class="joinForm" id="chatJoinForm">
                     <span class="joinCardUsername" id="usernameText">Username</span>
                     <input
                         class="joinCardInput"
                         id="chatName"
-                        name="name"
+                        name="username"
                         type="text"
                         maxlength="24"
-                        autocomplete="nickname"
+                        autocomplete="username"
                         aria-labelledby="usernameText"
                         placeholder="Your name"
                         required
                         autofocus
+                    >
+                    <span class="joinCardUsername" id="passwordText">Password</span>
+                    <input
+                        class="joinCardInput"
+                        id="chatPassword"
+                        name="password"
+                        type="password"
+                        maxlength="64"
+                        autocomplete="current-password"
+                        aria-labelledby="passwordText"
+                        placeholder="Your password"
+                        required
                     >
                     <p class="chatError joinError" id="chatJoinError" role="alert"></p>
                     <button class="chatJoinButton" id="chatJoinButton" type="submit">Continue</button>
