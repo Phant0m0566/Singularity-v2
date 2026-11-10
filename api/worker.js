@@ -521,7 +521,7 @@ export default {
 		}
 const url = new URL(request.url);
 
-if (!url.pathname.startsWith("/api")) {
+if (!url.pathname.startsWith("/api/worker") && !url.pathname.startsWith("/api")) {
     if (env && env.ASSETS && typeof env.ASSETS.fetch === "function") {
         return env.ASSETS.fetch(request);
     }
