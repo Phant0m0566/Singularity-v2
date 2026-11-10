@@ -17,7 +17,7 @@ onUnmounted(() => {
     <div class="chatPage" data-chat-root>
         <section class="chatRoom" id="chatRoom" inert>
             <div class="chatMessage" id="chatMessages" role="log" aria-live="polite">
-                <p class="chatEmpty" id="chatEmpty">No Messages Yet, Say Hi.</p>
+                <p class="chatEmpty" id="chatEmpty">Join In!.</p>
             </div>
             <p class="chatError roomError" id="chatRoomError" role="alert" hidden></p>
             <form class="chatInputArea" id="chatMessageForm" hidden>
@@ -30,7 +30,7 @@ onUnmounted(() => {
                     placeholder="Send a message..."
                     required
                 >
-                <button class="chatSendButton" id="chatSendButton" type="submit" aria-label="Send message">
+                <button class="chatSendButton" id="chatSendButton" type="submit" aria-label="Send a message">
                     <Send class="sendIcon"/>
                 </button>
             </form>
