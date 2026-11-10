@@ -514,18 +514,19 @@ return res.status(404).json({ error: { message: "Endpoint not found: " + req.met
 }
 
 export default {
-	async fetch(request, env) {
-		for (const k of Object.keys(ENV)) delete ENV[k];
-		for (const [k, v] of Object.entries(env || {})) {
-			if (typeof v === "string") ENV[k] = v;
-		}
-const url = new URL(request.url);
+    async fetch(request, env) {
+        for (const k of Object.keys(ENV)) delete ENV[k];
+        for (const [k, v] of Object.entries(env || {})) {
+            if (typeof v === 'string') ENV[k] = v;
+        }
 
-if (!url.pathname.startsWith("/api/worker") && !url.pathname.startsWith("/api")) {
-    if (env && env.ASSETS && typeof env.ASSETS.fetch === "function") {
-        return env.ASSETS.fetch(request);
-    }
-}
+        const url = new URL(request.url);
+		
+        if (!url.pathname.startsWith("/api")) {
+            if (env && env.ASSETS && typeof env.ASSETS.fetch === "function") {
+                return env.ASSETS.fetch(request);
+            }
+        }
 
 		let body;
 		if (request.method === "POST") {
