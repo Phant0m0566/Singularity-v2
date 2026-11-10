@@ -508,8 +508,9 @@ async function nodeHandler(req, res) {
 		return chat(body, reply, res);
 	}
 
-	res.setHeader("Allow", "GET, POST");
-	return res.status(405).json({ error: { message: "method not allowed fucking dumbass" } });
+
+res.setHeader("Content-Type", "application/json");
+return res.status(404).json({ error: { message: "Endpoint not found: " + req.method + " " + url.pathname } });
 }
 
 export default {
@@ -518,12 +519,13 @@ export default {
 		for (const [k, v] of Object.entries(env || {})) {
 			if (typeof v === "string") ENV[k] = v;
 		}
+const url = new URL(request.url);
 
-		const url = new URL(request.url);
-
-		if (!url.pathname.startsWith("/api/") && env && env.ASSETS && typeof env.ASSETS.fetch === "function") {
-			return env.ASSETS.fetch(request);
-		}
+if (!url.pathname.startsWith("/api")) {
+    if (env && env.ASSETS && typeof env.ASSETS.fetch === "function") {
+        return env.ASSETS.fetch(request);
+    }
+}
 
 		let body;
 		if (request.method === "POST") {
