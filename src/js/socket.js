@@ -2,6 +2,7 @@ export function initializeChatSocket() {
   const MESSAGE_COOLDOWN_MS = 500;
   const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
   const MAX_MESSAGE_HISTORY = 200;
+  const SCROLL_THRESHOLD_PX = 80;
   const DISPLAY_NAME_STORAGE_KEY = "aurelium-chat-display-name";
   const PRODUCTION_CHAT_BACKEND_URL = "https://aurelium.pages.dev";
   const root = document.querySelector("[data-chat-root]");
@@ -20,6 +21,8 @@ export function initializeChatSocket() {
   const joinPanel = getRequiredElement("chatJoinPanel");
   const joinForm = getRequiredElement("chatJoinForm");
   const nameInput = getRequiredElement("chatName");
+  const passwordInput = getRequiredElement("chatPassword");
+  const joinButton = getRequiredElement("chatJoinButton");
   const joinError = getRequiredElement("chatJoinError");
   const room = getRequiredElement("chatRoom");
   const roomError = getRequiredElement("chatRoomError");
@@ -27,14 +30,17 @@ export function initializeChatSocket() {
   const messageForm = getRequiredElement("chatMessageForm");
   const messageInput = getRequiredElement("chatMessage");
   const sendButton = getRequiredElement("chatSendButton");
+  const listeners = new AbortController();
   const state = {
     active: false,
     displayName: "",
+    password: "",
     joined: false,
     lastMessageSentAt: 0,
     nameKey: "",
     nameSaveFailed: false,
     reconnectTimer: null,
+    sendTimer: null,
     socket: null
   };
 
@@ -61,7 +67,7 @@ export function initializeChatSocket() {
       localStorage.setItem(DISPLAY_NAME_STORAGE_KEY, name);
       return true;
     } catch (error) {
-      console.error("unable to save display name", error);
+      console.error("Unable to save username.", error);
       return false;
     }
   }
@@ -84,7 +90,7 @@ export function initializeChatSocket() {
     const empty = document.createElement("p");
     empty.className = "chatEmpty";
     empty.id = "chatEmpty";
-    empty.textContent = "No messages, Say hello!";
+    empty.textContent = "No messages yet, say hi.";
     messages.appendChild(empty);
   }
 
@@ -102,7 +108,7 @@ export function initializeChatSocket() {
       if (!Number.isNaN(messageDate.getTime())) {
         const separator = document.createElement("span");
         separator.className = "messageSeparator";
-        separator.textContent = "•";
+        separator.textContent = "\u2022";
 
         const time = document.createElement("time");
         time.className = "messageTime";
@@ -118,10 +124,16 @@ export function initializeChatSocket() {
     return header;
   }
 
-  function appendMessage(message) {
+  function isNearBottom() {
+    return messages.scrollHeight - messages.scrollTop - messages.clientHeight <= SCROLL_THRESHOLD_PX;
+  }
+
+  function appendMessage(message, forceScroll) {
     if (!message || typeof message.name !== "string" || typeof message.text !== "string") return;
     const displayName = normalizeDisplayName(message.name);
     if (!displayName) return;
+
+    const shouldScroll = Boolean(forceScroll) || isNearBottom();
 
     const empty = root.querySelector("#chatEmpty");
     if (empty) empty.remove();
@@ -165,6 +177,7 @@ export function initializeChatSocket() {
     content.appendChild(bubble);
     item.appendChild(content);
     messages.appendChild(item);
+
     while (messages.querySelectorAll(".message").length > MAX_MESSAGE_HISTORY) {
       messages.querySelector(".message").remove();
       const firstRemaining = messages.querySelector(".message");
@@ -179,7 +192,10 @@ export function initializeChatSocket() {
         }
       }
     }
-    messages.scrollTop = messages.scrollHeight;
+
+    if (shouldScroll) {
+      messages.scrollTop = messages.scrollHeight;
+    }
   }
 
   function renderHistory(history) {
@@ -188,7 +204,10 @@ export function initializeChatSocket() {
       resetMessages();
       return;
     }
-    history.forEach(appendMessage);
+    history.forEach(function(entry) {
+      appendMessage(entry, true);
+    });
+    messages.scrollTop = messages.scrollHeight;
   }
 
   function updateMessage(message) {
@@ -201,10 +220,11 @@ export function initializeChatSocket() {
     }
   }
 
-  function sendJoin(socket, name) {
+  function sendJoin(socket, name, password) {
     socket.send(JSON.stringify({
       type: "join",
-      name
+      name,
+      password
     }));
   }
 
@@ -212,6 +232,24 @@ export function initializeChatSocket() {
     socket.send(JSON.stringify({
       type: "watch"
     }));
+  }
+
+  function showJoinPanel() {
+    joinPanel.hidden = false;
+    room.setAttribute("inert", "");
+    setSendEnabled(false);
+  }
+
+  function rejectJoin(message) {
+    state.displayName = "";
+    state.password = "";
+    state.joined = false;
+    joinButton.disabled = false;
+    showJoinPanel();
+    showRoomError("");
+    showJoinError(message);
+    passwordInput.value = "";
+    passwordInput.focus();
   }
 
   function getChatSiteScope() {
@@ -234,10 +272,7 @@ export function initializeChatSocket() {
     state.joined = false;
     setSendEnabled(false);
 
-    const chatUrl = new URL(
-      "/api/chat",
-      getChatBackendUrl()
-    );
+    const chatUrl = new URL("/api/chat", getChatBackendUrl());
     chatUrl.protocol = chatUrl.protocol === "https:" ? "wss:" : "ws:";
     chatUrl.searchParams.set("scope", getChatSiteScope());
     const socket = new WebSocket(chatUrl.href);
@@ -247,8 +282,8 @@ export function initializeChatSocket() {
       if (state.socket !== socket || !state.active) return;
       showJoinError("");
       showRoomError("");
-      if (state.displayName) {
-        sendJoin(socket, state.displayName);
+      if (state.displayName && state.password) {
+        sendJoin(socket, state.displayName, state.password);
       } else {
         sendWatch(socket);
       }
@@ -261,9 +296,11 @@ export function initializeChatSocket() {
       try {
         packet = JSON.parse(event.data);
       } catch (error) {
-        showConnectionError("Received an invalid chat response.");
+        showConnectionError("invalid chat response.");
         return;
       }
+
+      if (!packet || typeof packet !== "object") return;
 
       if (packet.type === "history") {
         const joinedName = normalizeDisplayName(packet.name);
@@ -277,10 +314,14 @@ export function initializeChatSocket() {
         renderHistory(packet.messages);
         messageForm.hidden = false;
         if (state.joined) {
+          state.displayName = joinedName;
+          state.nameSaveFailed = !saveDisplayName(joinedName);
           joinPanel.hidden = true;
+          joinButton.disabled = false;
+          passwordInput.value = "";
           room.removeAttribute("inert");
           showJoinError("");
-          showRoomError(state.nameSaveFailed ? "Your display name couldn't be saved on this device." : "");
+          showRoomError(state.nameSaveFailed ? "Your username could not be saved." : "");
           setSendEnabled(true);
           messageInput.focus();
         } else {
@@ -291,10 +332,14 @@ export function initializeChatSocket() {
       } else if (packet.type === "message-update") {
         updateMessage(packet.message);
       } else if (packet.type === "message") {
-        appendMessage(packet.message);
+        appendMessage(packet.message, false);
         showRoomError("");
       } else if (packet.type === "error") {
-        showConnectionError(packet.message || "Chat request failed.");
+        if (!state.joined && state.displayName) {
+          rejectJoin(packet.message || "Could not join the chat.");
+        } else {
+          showConnectionError(packet.message || "Chat request failed.");
+        }
       }
     });
 
@@ -313,24 +358,31 @@ export function initializeChatSocket() {
   joinForm.addEventListener("submit", function(event) {
     event.preventDefault();
     const name = normalizeDisplayName(nameInput.value);
+    const password = passwordInput.value;
     if (!name) {
-      showJoinError("Enter a display name to join.");
+      showJoinError("Enter a username to join.");
       nameInput.focus();
       return;
     }
-    state.nameSaveFailed = !saveDisplayName(name);
+    if (!password) {
+      showJoinError("Enter a password to join.");
+      passwordInput.focus();
+      return;
+    }
     state.displayName = name;
+    state.password = password;
     state.active = true;
+    joinButton.disabled = true;
     room.setAttribute("inert", "");
     showJoinError("");
     showRoomError("");
     setSendEnabled(false);
     if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-      sendJoin(state.socket, name);
+      sendJoin(state.socket, name, password);
     } else if (!state.socket || state.socket.readyState >= WebSocket.CLOSING) {
       connect();
     }
-  });
+  }, { signal: listeners.signal });
 
   messageForm.addEventListener("submit", function(event) {
     event.preventDefault();
@@ -346,7 +398,9 @@ export function initializeChatSocket() {
       }));
       state.lastMessageSentAt = Date.now();
       sendButton.disabled = true;
-      setTimeout(function() {
+      clearTimeout(state.sendTimer);
+      state.sendTimer = setTimeout(function() {
+        state.sendTimer = null;
         if (state.socket === socket && state.joined && socket.readyState === WebSocket.OPEN) {
           sendButton.disabled = false;
         }
@@ -356,13 +410,17 @@ export function initializeChatSocket() {
     } catch (error) {
       showRoomError("Message could not be sent.");
     }
-  });
+  }, { signal: listeners.signal });
 
   function cleanup() {
     state.active = false;
     state.joined = false;
+    state.password = "";
+    listeners.abort();
     clearTimeout(state.reconnectTimer);
+    clearTimeout(state.sendTimer);
     state.reconnectTimer = null;
+    state.sendTimer = null;
     const socket = state.socket;
     state.socket = null;
     if (socket && socket.readyState < WebSocket.CLOSING) {
@@ -374,18 +432,17 @@ export function initializeChatSocket() {
   try {
     savedName = normalizeDisplayName(localStorage.getItem(DISPLAY_NAME_STORAGE_KEY) || "");
   } catch (error) {
-    console.error("Unable to read the saved chat display name.", error);
-    showJoinError("Could not load your saved display name. Enter one to continue.");
+    console.error("Unable to read the username.", error);
+    showJoinError("Could not load your username.");
   }
 
   if (savedName) {
     nameInput.value = savedName;
-    joinPanel.hidden = true;
-    joinForm.requestSubmit();
-  } else {
-    state.active = true;
-    connect();
+    passwordInput.focus();
   }
+
+  state.active = true;
+  connect();
 
   return cleanup;
 }
