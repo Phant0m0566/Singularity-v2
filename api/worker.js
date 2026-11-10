@@ -1,5 +1,7 @@
 const OBF_KEY = [173, 91, 202, 17, 138, 64, 229, 53];
 
+const ENV = {};
+
 const listKeys = (value) => (value || "").split(",").map((s) => s.trim()).filter(Boolean);
 
 const PROVIDERS = {
@@ -19,7 +21,7 @@ const PROVIDERS = {
 		keys: "GROQ_KEYS",
 
 		get models() {
-			const m = listKeys(process.env.GROQ_MODELS);
+			const m = listKeys(ENV.GROQ_MODELS);
 			return m.length ? m : ["openai/gpt-oss-120b"];
 		},
 	},
@@ -66,7 +68,7 @@ async function youtubeSearch(rawQuery, rawLimit, reply, res) {
 	const limit = Math.min(Math.max(parseInt(rawLimit, 10) || 25, 1), 50);
 	if (!q) return reply(400, { error: "Missing q" });
 
-	const keys = listKeys(process.env.YT_KEYS);
+	const keys = listKeys(ENV.YT_KEYS);
 	if (!keys.length) return reply(500, { error: "No configy" });
 
 	const start = Math.floor(Math.random() * keys.length);
@@ -120,7 +122,7 @@ async function resolveShortLink(rawUrl) {
 }
 
 async function ytApi(path, params) {
-	const keys = listKeys(process.env.YT_KEYS);
+	const keys = listKeys(ENV.YT_KEYS);
 	if (!keys.length) throw new ImportError("configured wrong or smth idk.");
 	const start = Math.floor(Math.random() * keys.length);
 	let lastMsg = "YouTube request failed";
@@ -334,10 +336,10 @@ const CALLERS = {
 		return d;
 	},
 
-	deepseek: openaiCompat(() => (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "")),
+	deepseek: openaiCompat(() => (ENV.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "")),
 
 	groq: openaiCompat(
-		() => (process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, ""),
+		() => (ENV.GROQ_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, ""),
 		{
 			stripThink: true,
 
@@ -346,7 +348,7 @@ const CALLERS = {
 	),
 
 	async claude(key, model, turns, cfg, body) {
-		const base = (process.env.CLAUDE_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "");
+		const base = (ENV.CLAUDE_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "");
 		const payload = {
 			model,
 			max_tokens: cfg.maxTokens,
@@ -374,7 +376,7 @@ async function chat(body, reply, res) {
 		provider = Object.keys(PROVIDERS).find((p) => PROVIDERS[p].models.includes(model));
 	}
 	if (!provider) {
-		provider = Object.keys(PROVIDERS).find((p) => listKeys(process.env[PROVIDERS[p].keys]).length) || "gemini";
+		provider = Object.keys(PROVIDERS).find((p) => listKeys(ENV[PROVIDERS[p].keys]).length) || "gemini";
 	}
 	const cfgP = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
 	if (!cfgP) return reply(400, { error: { message: "Unsupported provider: " + String(provider).slice(0, 50) } });
@@ -386,7 +388,7 @@ async function chat(body, reply, res) {
 	body.model = model;
 	body.system = typeof body.system === "string" ? body.system.trim().slice(0, MAX_SYSTEM_CHARS) : "";
 
-	const keys = listKeys(process.env[cfgP.keys]);
+	const keys = listKeys(ENV[cfgP.keys]);
 	if (!keys.length) return reply(500, { error: { message: "not working rn dum dum " + provider } });
 
 	const source = Array.isArray(body.messages)
@@ -455,14 +457,20 @@ async function chat(body, reply, res) {
 
 function listModels(reply, res) {
 	const providers = Object.keys(PROVIDERS)
-		.filter((p) => listKeys(process.env[PROVIDERS[p].keys]).length)
+		.filter((p) => listKeys(ENV[PROVIDERS[p].keys]).length)
 		.map((p) => ({ provider: p, models: PROVIDERS[p].models }));
 	res.setHeader("Cache-Control", "no-store");
+	if (!providers.length) {
+		return reply(200, {
+			providers,
+			hint: "No API keys found at runtime. Add GEMINI_KEYS, DEEPSEEK_KEYS, CLAUDE_KEYS or GROQ_KEYS under Settings > Variables and secrets (runtime, not Build) and redeploy.",
+		});
+	}
 	return reply(200, { providers });
 }
 
 async function nodeHandler(req, res) {
-	res.setHeader("Access-Control-Allow-Origin", process.env.ALLOWED_ORIGIN || "*");
+	res.setHeader("Access-Control-Allow-Origin", ENV.ALLOWED_ORIGIN || "*");
 	res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 	res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 	res.setHeader("Vary", "Origin");
@@ -506,13 +514,17 @@ async function nodeHandler(req, res) {
 
 export default {
 	async fetch(request, env) {
-		globalThis.process ??= { env: {} };
-		process.env ??= {};
-		for (const [k, v] of Object.entries(env)) {
-			if (typeof v === "string") process.env[k] = v;
+		for (const k of Object.keys(ENV)) delete ENV[k];
+		for (const [k, v] of Object.entries(env || {})) {
+			if (typeof v === "string") ENV[k] = v;
 		}
 
 		const url = new URL(request.url);
+
+		if (!url.pathname.startsWith("/api/") && env && env.ASSETS && typeof env.ASSETS.fetch === "function") {
+			return env.ASSETS.fetch(request);
+		}
+
 		let body;
 		if (request.method === "POST") {
 			const ct = request.headers.get("content-type") || "";
