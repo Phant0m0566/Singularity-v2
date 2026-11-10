@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "singularity-v2",
-  "main": "worker/index.js",
+  "main": "api/worker.js",
   "compatibility_date": "2026-10-31",
   "compatibility_flags": ["nodejs_compat"],
   "build": {
@@ -15,5 +15,5 @@
   },
   "vars": {
     "ALLOWED_ORIGINS": "https://singularity-v2.themultiverseeyt.workers.dev/"
-  },
+  }
 }
