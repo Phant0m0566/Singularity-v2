@@ -15,5 +15,5 @@
   },
   "vars": {
     "ALLOWED_ORIGINS": "https://singularity-v2.pages.dev/"
-  }
+  },
 }
