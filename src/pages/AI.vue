@@ -41,7 +41,7 @@ onMounted(async () => {
 
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('json')) {
-      throw new Error('/api/worker did not return JSON, so the request is not reaching the worker');
+      throw new Error('/api/worker did not return with the json milk :(.');
     }
 
     const data = (await res.json()) as ApiResponse;
@@ -50,10 +50,10 @@ onMounted(async () => {
     if (first && Array.isArray(first.models) && first.models.length) {
       selected.value = first.provider + '|' + first.models[0];
     } else {
-      error.value = data.hint || 'No models are available. Check your API keys on the server.';
+      error.value = data.hint || 'No models are available dumbash.';
     }
   } catch (err) {
-    error.value = 'Could not load models: ' + (err instanceof Error ? err.message : 'network error');
+    error.value = 'Could not load models ONLY for you: ' + (err instanceof Error ? err.message : 'network error');
   }
 });
 
@@ -162,7 +162,7 @@ function readImageData(file: File) {
       canvas.height = Math.max(1, Math.round(height * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        reject(new Error('Canvas unavailable'));
+        reject(new Error('Canvas unavailable for this you ONLY'));
         return;
       }
       ctx.fillStyle = '#ffffff';
@@ -172,7 +172,7 @@ function readImageData(file: File) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Failed to read image'));
+      reject(new Error('Failed to read. idk im dumb asf'));
     };
     img.src = url;
   });
@@ -333,7 +333,7 @@ async function send() {
       throw new Error(apiMessage || 'Request failed (' + res.status + ')');
     }
 
-    if (!data) throw new Error('Invalid response from server.');
+    if (!data) throw new Error('Invalid response from server, thanks alot for eating the server fatahh.');
 
     const reply = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
 
@@ -406,7 +406,7 @@ async function send() {
         </div>
 
         <div v-else class="aiEmptyState">
-          <div class="aiEmptyTitle">Ask anything.</div>
+          <div class="aiEmptyTitle">Ask AnyThing.</div>
         </div>
 
         <div class="aiInputArea" id="aiInputArea">
