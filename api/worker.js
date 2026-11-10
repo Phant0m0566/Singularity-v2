@@ -25,9 +25,10 @@ const PROVIDERS = {
 	},
 };
 
-const RETRY_STATUSES = [401, 403, 429, 500, 502, 503];
+const RETRY_STATUSES = [401, 403, 408, 429, 500, 502, 503, 504, 529];
 const MAX_CONTENT_CHARS = 4000000;
 const MAX_TURNS = 40;
+const MAX_SYSTEM_CHARS = 20000;
 const DEFAULT_MAX_TOKENS = 2048;
 
 const IMPORT_MAX_TRACKS = 300;
@@ -41,26 +42,18 @@ const clamp = (value, fallback, min, max) => {
 };
 
 const obf = (buf) => {
-	const out = Buffer.alloc(buf.length);
+	const out = new Uint8Array(buf.length);
 	for (let i = 0; i < buf.length; i++) {
 		out[i] = buf[i] ^ OBF_KEY[i % OBF_KEY.length] ^ (i & 255);
 	}
 	return out;
 };
 
-async function readRaw(req) {
-	if (Buffer.isBuffer(req.body)) return req.body;
-	if (req.body !== undefined) return null;
-	const chunks = [];
-	for await (const chunk of req) chunks.push(chunk);
-	return Buffer.concat(chunks);
-}
-
 function makeReply(res, binary) {
 	const reply = (status, obj) => {
 		if (binary) {
 			res.setHeader("Content-Type", "application/octet-stream");
-			return res.status(status).send(obf(Buffer.from(JSON.stringify(obj), "utf8")));
+			return res.status(status).send(obf(new TextEncoder().encode(JSON.stringify(obj))));
 		}
 		return res.status(status).json(obj);
 	};
@@ -74,7 +67,7 @@ async function youtubeSearch(rawQuery, rawLimit, reply, res) {
 	if (!q) return reply(400, { error: "Missing q" });
 
 	const keys = listKeys(process.env.YT_KEYS);
-	if (!keys.length) return reply(500, { error: "No API keys configured" });
+	if (!keys.length) return reply(500, { error: "No configy" });
 
 	const start = Math.floor(Math.random() * keys.length);
 	let lastStatus = 502;
@@ -262,8 +255,20 @@ function toTurns(body) {
 	}
 	return (body.contents || []).map((c) => ({
 		role: c && c.role === "model" ? "assistant" : "user",
-		text: ((c && c.parts) || []).map((p) => (p && p.text) || "").join(""),
+		text: (c && Array.isArray(c.parts) ? c.parts : []).map((p) => (p && typeof p.text === "string" ? p.text : "")).join(""),
 	}));
+}
+
+function hasGeminiContent(contents) {
+	return (
+		Array.isArray(contents) &&
+		contents.some(
+			(c) =>
+				c &&
+				Array.isArray(c.parts) &&
+				c.parts.some((p) => p && ((typeof p.text === "string" && p.text.trim()) || p.inlineData))
+		)
+	);
 }
 
 async function upstream(url, headers, payload) {
@@ -290,7 +295,7 @@ const geminiShape = (text) => ({
 const openaiCompat = (getBase, { stripThink = false, extra = () => ({}) } = {}) =>
 	async (key, model, turns, cfg, body) => {
 		const messages = turns.map((t) => ({ role: t.role, content: t.text }));
-		if (body.system) messages.unshift({ role: "system", content: String(body.system) });
+		if (body.system) messages.unshift({ role: "system", content: body.system });
 		const d = await upstream(getBase() + "/chat/completions", { Authorization: "Bearer " + key }, {
 			model,
 			messages,
@@ -316,12 +321,17 @@ const CALLERS = {
 			contents,
 			generationConfig: { temperature: cfg.temperature, maxOutputTokens: cfg.maxTokens },
 		};
-		if (body.system) payload.systemInstruction = { parts: [{ text: String(body.system) }] };
-		return upstream(
+		if (body.system) payload.systemInstruction = { parts: [{ text: body.system }] };
+		const d = await upstream(
 			"https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent",
 			{ "x-goog-api-key": key },
 			payload
 		);
+		const hasCandidate = d && Array.isArray(d.candidates) && d.candidates.length > 0;
+		if (!hasCandidate && d && d.promptFeedback && d.promptFeedback.blockReason) {
+			throw new UpstreamError(400, "Request was blocked: " + d.promptFeedback.blockReason);
+		}
+		return d;
 	},
 
 	deepseek: openaiCompat(() => (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "")),
@@ -330,7 +340,7 @@ const CALLERS = {
 		() => (process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, ""),
 		{
 			stripThink: true,
-	
+
 			extra: (model) => (/^openai\/gpt-oss/.test(model) ? { reasoning_effort: "low" } : {}),
 		}
 	),
@@ -343,7 +353,7 @@ const CALLERS = {
 			temperature: Math.min(cfg.temperature, 1),
 			messages: turns.map((t) => ({ role: t.role, content: t.text })),
 		};
-		if (body.system) payload.system = String(body.system);
+		if (body.system) payload.system = body.system;
 		const d = await upstream(base + "/v1/messages", { "x-api-key": key, "anthropic-version": "2023-06-01" }, payload);
 		return geminiShape((d.content || []).map((c) => (c.type === "text" ? c.text : "")).join(""));
 	},
@@ -374,6 +384,7 @@ async function chat(body, reply, res) {
 		return reply(400, { error: { message: "Unsupported model for " + provider + ": " + String(model).slice(0, 80) } });
 	}
 	body.model = model;
+	body.system = typeof body.system === "string" ? body.system.trim().slice(0, MAX_SYSTEM_CHARS) : "";
 
 	const keys = listKeys(process.env[cfgP.keys]);
 	if (!keys.length) return reply(500, { error: { message: "not working rn dum dum " + provider } });
@@ -400,7 +411,11 @@ async function chat(body, reply, res) {
 	const turns = toTurns(body).filter((t) => t.text);
 
 	while (turns.length && turns[0].role === "assistant") turns.shift();
-	if (!turns.length) return reply(400, { error: { message: "Invalid messages" } });
+
+	const geminiContents = provider === "gemini" && Array.isArray(body.contents) && !Array.isArray(body.messages);
+	if (geminiContents ? !hasGeminiContent(body.contents) : !turns.length) {
+		return reply(400, { error: { message: "Invalid messages" } });
+	}
 
 	const caller = CALLERS[provider];
 	if (typeof caller !== "function") {
@@ -422,7 +437,8 @@ async function chat(body, reply, res) {
 				lastStatus = err.status;
 				lastMessage = err.message;
 				console.error("[" + provider + "/" + model + "] upstream " + err.status + ": " + err.message);
-				if (RETRY_STATUSES.includes(err.status)) continue;
+				const badKey = err.status === 400 && /api[ _-]?key/i.test(err.message);
+				if (RETRY_STATUSES.includes(err.status) || badKey) continue;
 				return reply(err.status, { error: { message: err.message, status: err.status } });
 			}
 			console.error("[" + provider + "/" + model + "] unexpected error:", err);
@@ -463,10 +479,10 @@ async function nodeHandler(req, res) {
 
 		let body = req.body;
 		if (binary) {
-			const raw = await readRaw(req);
+			const raw = req.body instanceof Uint8Array ? req.body : null;
 			if (!raw) return reply(400, { error: { message: "Invalid body" } });
 			try {
-				body = JSON.parse(obf(raw).toString("utf8"));
+				body = JSON.parse(new TextDecoder().decode(obf(raw)));
 			} catch {
 				return reply(400, { error: { message: "Invalid body" } });
 			}
@@ -501,7 +517,7 @@ export default {
 		if (request.method === "POST") {
 			const ct = request.headers.get("content-type") || "";
 			body = ct.includes("octet-stream")
-				? Buffer.from(await request.arrayBuffer())
+				? new Uint8Array(await request.arrayBuffer())
 				: await request.text();
 		}
 
