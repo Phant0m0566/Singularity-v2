@@ -4,6 +4,8 @@ export function initializeChatSocket() {
   const MAX_MESSAGE_HISTORY = 200;
   const SCROLL_THRESHOLD_PX = 80;
   const DISPLAY_NAME_STORAGE_KEY = "aurelium-chat-display-name";
+  const AUTH_COOKIE_NAME = "aurelium-chat-auth";
+  const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 400;
   const PRODUCTION_CHAT_BACKEND_URL = "https://aurelium.pages.dev";
   const root = document.querySelector("[data-chat-root]");
   if (!root) {
@@ -67,8 +69,46 @@ export function initializeChatSocket() {
       localStorage.setItem(DISPLAY_NAME_STORAGE_KEY, name);
       return true;
     } catch (error) {
-      console.error("Unable to save username.", error);
+      console.error("unable to save username", error);
       return false;
+    }
+  }
+
+  function readAuthCookie() {
+    try {
+      const prefix = AUTH_COOKIE_NAME + "=";
+      const entry = document.cookie.split("; ").find(function(part) {
+        return part.startsWith(prefix);
+      });
+      if (!entry) return null;
+      const data = JSON.parse(decodeURIComponent(entry.slice(prefix.length)));
+      if (!data || typeof data.name !== "string" || typeof data.password !== "string") return null;
+      const name = normalizeDisplayName(data.name);
+      if (!name || !data.password) return null;
+      return { name, password: data.password };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function saveAuthCookie(name, password) {
+    try {
+      const value = encodeURIComponent(JSON.stringify({ name, password }));
+      const secure = window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = AUTH_COOKIE_NAME + "=" + value
+        + "; Max-Age=" + AUTH_COOKIE_MAX_AGE_SECONDS
+        + "; Path=/; SameSite=Strict" + secure;
+    } catch (error) {
+      console.error("Unable to save.", error);
+    }
+  }
+
+  function clearAuthCookie() {
+    try {
+      const secure = window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = AUTH_COOKIE_NAME + "=; Max-Age=0; Path=/; SameSite=Strict" + secure;
+    } catch (error) {
+      console.error("Unable to clear.", error);
     }
   }
 
@@ -90,7 +130,7 @@ export function initializeChatSocket() {
     const empty = document.createElement("p");
     empty.className = "chatEmpty";
     empty.id = "chatEmpty";
-    empty.textContent = "No messages yet, say hi.";
+    empty.textContent = "No messages, Say hello!";
     messages.appendChild(empty);
   }
 
@@ -108,7 +148,7 @@ export function initializeChatSocket() {
       if (!Number.isNaN(messageDate.getTime())) {
         const separator = document.createElement("span");
         separator.className = "messageSeparator";
-        separator.textContent = "\u2022";
+        separator.textContent = "•";
 
         const time = document.createElement("time");
         time.className = "messageTime";
@@ -241,6 +281,7 @@ export function initializeChatSocket() {
   }
 
   function rejectJoin(message) {
+    clearAuthCookie();
     state.displayName = "";
     state.password = "";
     state.joined = false;
@@ -272,7 +313,10 @@ export function initializeChatSocket() {
     state.joined = false;
     setSendEnabled(false);
 
-    const chatUrl = new URL("/api/chat", getChatBackendUrl());
+    const chatUrl = new URL(
+      "/api/chat",
+      getChatBackendUrl()
+    );
     chatUrl.protocol = chatUrl.protocol === "https:" ? "wss:" : "ws:";
     chatUrl.searchParams.set("scope", getChatSiteScope());
     const socket = new WebSocket(chatUrl.href);
@@ -296,7 +340,7 @@ export function initializeChatSocket() {
       try {
         packet = JSON.parse(event.data);
       } catch (error) {
-        showConnectionError("invalid chat response.");
+        showConnectionError("Received an invalid chat response.");
         return;
       }
 
@@ -316,6 +360,9 @@ export function initializeChatSocket() {
         if (state.joined) {
           state.displayName = joinedName;
           state.nameSaveFailed = !saveDisplayName(joinedName);
+          if (state.password) {
+            saveAuthCookie(joinedName, state.password);
+          }
           joinPanel.hidden = true;
           joinButton.disabled = false;
           passwordInput.value = "";
@@ -428,17 +475,27 @@ export function initializeChatSocket() {
     }
   }
 
-  let savedName = "";
-  try {
-    savedName = normalizeDisplayName(localStorage.getItem(DISPLAY_NAME_STORAGE_KEY) || "");
-  } catch (error) {
-    console.error("Unable to read the username.", error);
-    showJoinError("Could not load your username.");
-  }
+  const savedAuth = readAuthCookie();
 
-  if (savedName) {
-    nameInput.value = savedName;
-    passwordInput.focus();
+  if (savedAuth) {
+    nameInput.value = savedAuth.name;
+    state.displayName = savedAuth.name;
+    state.password = savedAuth.password;
+    joinPanel.hidden = true;
+    joinButton.disabled = true;
+  } else {
+    let savedName = "";
+    try {
+      savedName = normalizeDisplayName(localStorage.getItem(DISPLAY_NAME_STORAGE_KEY) || "");
+    } catch (error) {
+      console.error("Unable to read the username", error);
+      showJoinError("Could not load your username");
+    }
+
+    if (savedName) {
+      nameInput.value = savedName;
+      passwordInput.focus();
+    }
   }
 
   state.active = true;
