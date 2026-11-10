@@ -8,6 +8,7 @@ const MAX_SAVED_CHATS = 50;
 const MAX_IMAGES = 4;
 const MAX_IMAGE_SIDE = 1280;
 const HISTORY_LIMIT = 30;
+const IMAGE_PLACEHOLDER = 'Image upload';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string; images?: string[] };
 type ProviderModels = { provider: string; models: string[] };
@@ -35,10 +36,13 @@ onMounted(async () => {
 
   try {
     const res = await fetch(API_URL + '?models');
+    if (!res.ok) throw new Error('Models request failed');
     const data = (await res.json()) as ApiResponse;
-    providers.value = data.providers || [];
+    providers.value = Array.isArray(data.providers) ? data.providers : [];
     const first = providers.value[0];
-    if (first && first.models.length) selected.value = first.provider + '|' + first.models[0];
+    if (first && Array.isArray(first.models) && first.models.length) {
+      selected.value = first.provider + '|' + first.models[0];
+    }
   } catch {
     error.value = 'Could not load models.';
   }
@@ -69,19 +73,37 @@ function loadSavedChats() {
 
     chats.value = (parsed as SavedChat[])
       .filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages))
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      .map((c) => {
+        const cleanMessages = c.messages.filter(
+          (m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string',
+        );
+        return {
+          id: c.id,
+          name: typeof c.name === 'string' && c.name ? c.name : makeChatName(cleanMessages),
+          updatedAt: Number(c.updatedAt) || 0,
+          messages: cleanMessages,
+        };
+      })
+      .filter((c) => c.messages.length)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
     chats.value = [];
   }
 }
 
 function saveChats() {
-  const ordered = [...chats.value].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_SAVED_CHATS);
+  let ordered = [...chats.value].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_SAVED_CHATS);
   chats.value = ordered;
-  try {
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(ordered));
-  } catch {
 
+  while (true) {
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(ordered));
+      return;
+    } catch {
+      if (ordered.length <= 1) return;
+      ordered = ordered.slice(0, ordered.length - 1);
+      chats.value = ordered;
+    }
   }
 }
 
@@ -113,6 +135,7 @@ function openChat(chat: SavedChat) {
   error.value = '';
   message.value = '';
   selectedImages.value = [];
+  if (fileInput.value) fileInput.value.value = '';
   scrollDown();
 }
 
@@ -122,10 +145,12 @@ function readImageData(file: File) {
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(img.width, img.height));
+      const width = img.naturalWidth || img.width || 1;
+      const height = img.naturalHeight || img.height || 1;
+      const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(width, height));
       const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         reject(new Error('Canvas unavailable'));
@@ -144,31 +169,46 @@ function readImageData(file: File) {
   });
 }
 
-function handleFiles(event: Event) {
+async function handleFiles(event: Event) {
   const input = event.target as HTMLInputElement;
   const room = MAX_IMAGES - selectedImages.value.length;
-  const files = Array.from(input.files || [])
-    .filter((file) => file.type.startsWith('image/'))
-    .slice(0, Math.max(room, 0));
-  if (!files.length) {
+  const picked = Array.from(input.files || []).filter((file) => file.type.startsWith('image/'));
+
+  if (!picked.length) {
     input.value = '';
     return;
   }
 
-  Promise.all(
+  if (room <= 0) {
+    error.value = 'You can attach up to ' + MAX_IMAGES + ' images.';
+    input.value = '';
+    return;
+  }
+
+  const files = picked.slice(0, room);
+
+  const settled = await Promise.allSettled(
     files.map(async (file) => ({
       file,
       dataUrl: await readImageData(file),
     })),
-  )
-    .then((results) => {
-      selectedImages.value = [...selectedImages.value, ...results].slice(0, MAX_IMAGES);
-      input.value = '';
-    })
-    .catch(() => {
-      error.value = 'Could not read images.';
-      input.value = '';
-    });
+  );
+
+  const results = settled
+    .filter((entry): entry is PromiseFulfilledResult<{ file: File; dataUrl: string }> => entry.status === 'fulfilled')
+    .map((entry) => entry.value);
+
+  if (results.length) {
+    selectedImages.value = [...selectedImages.value, ...results].slice(0, MAX_IMAGES);
+  }
+
+  if (results.length < files.length) {
+    error.value = results.length ? 'Some images could not be read.' : 'Could not read images.';
+  } else if (picked.length > room) {
+    error.value = 'You can attach up to ' + MAX_IMAGES + ' images.';
+  }
+
+  input.value = '';
 }
 
 function removeImage(index: number) {
@@ -182,8 +222,10 @@ function buildGeminiParts(turns: ChatMessage[]) {
 
   for (const turn of turns) {
     const parts: GeminiPart[] = [];
+    const hasImages = Boolean(turn.images && turn.images.length);
+    const isPlaceholder = hasImages && turn.content === IMAGE_PLACEHOLDER;
 
-    if (turn.content && turn.content.trim()) parts.push({ text: turn.content });
+    if (turn.content && turn.content.trim() && !isPlaceholder) parts.push({ text: turn.content });
 
     for (const image of turn.images || []) {
       const match = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i);
@@ -220,7 +262,7 @@ async function scrollDown() {
 }
 
 function onEnter(event: KeyboardEvent) {
-  if (event.isComposing) return;
+  if (event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
   send();
 }
@@ -233,21 +275,19 @@ async function send() {
 
   const [provider = '', model = ''] = selected.value.split('|');
 
-
   if (hasImages && provider !== 'gemini') {
-    error.value = 'Image uploads only work with Gemini models.';
+    error.value = 'Image uploads dont work or smth';
     return;
   }
 
   error.value = '';
   const chatId = activeChatId.value ?? uid();
-  activeChatId.value = chatId;
 
   const imageUrls = draftImages.map((item) => item.dataUrl);
   const userIndex = history.value.length;
   history.value.push({
     role: 'user',
-    content: text || 'Image upload',
+    content: text || IMAGE_PLACEHOLDER,
     images: imageUrls.length ? imageUrls : undefined,
   });
   message.value = '';
@@ -258,7 +298,7 @@ async function send() {
 
   try {
     const recent = recentTurns();
-  
+
     const useContents = provider === 'gemini' && recent.some((turn) => turn.images && turn.images.length);
 
     const payload = useContents
@@ -275,7 +315,7 @@ async function send() {
     try {
       data = (await res.json()) as ApiResponse;
     } catch {
-
+      data = null;
     }
 
     if (!res.ok) {
@@ -284,15 +324,18 @@ async function send() {
       throw new Error(apiMessage || 'Request failed (' + res.status + ')');
     }
 
-    const reply = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+    if (!data) throw new Error('Invalid response from server.');
+
+    const reply = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
 
     history.value.push({ role: 'assistant', content: reply || '(empty response ig)' });
+    activeChatId.value = chatId;
     persistChat(chatId, history.value);
   } catch (err) {
     if (history.value[userIndex]?.role === 'user') {
       history.value.splice(userIndex, 1);
     }
- 
+
     if (!message.value) message.value = text;
     if (!selectedImages.value.length) selectedImages.value = draftImages;
     error.value = err instanceof Error ? err.message : 'Something went wrong ( of course ).';
