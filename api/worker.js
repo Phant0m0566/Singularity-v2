@@ -7,15 +7,15 @@ const listKeys = (value) => (value || "").split(",").map((s) => s.trim()).filter
 const PROVIDERS = {
 	gemini: {
 		keys: "GEMINI_KEYS",
-		models: ["gemini-3.8-flash"],
+		models: ["Gemini-3.8-Flash"],
 	},
 	deepseek: {
 		keys: "DEEPSEEK_KEYS",
-		models: ["deepseek-chat"],
+		models: ["Deepseek-Chat"],
 	},
 	claude: {
 		keys: "CLAUDE_KEYS",
-		models: ["claude-sonnet-5-5"],
+		models: ["Claude-Sonnet-5-5"],
 	},
 	groq: {
 		keys: "GROQ_KEYS",
@@ -95,7 +95,7 @@ async function youtubeSearch(rawQuery, rawLimit, reply, res) {
 			lastStatus = yt.status;
 			if (yt.status !== 403 && yt.status !== 400) break;
 		} catch (err) {
-			console.error("youtubeSearch fetch failed:", err);
+			console.error("Search fetch failed cause you ate it:", err);
 			lastStatus = 502;
 		}
 	}
@@ -110,7 +110,7 @@ async function resolveShortLink(rawUrl) {
 	for (let hop = 0; hop < 5; hop++) {
 		const u = new URL(url);
 		if (u.protocol !== "https:" || !IMPORT_HOSTS.test(u.hostname)) {
-			throw new ImportError("That link isn't supported.");
+			throw new ImportError("That link is not support i guess.");
 		}
 		if (!SHORT_LINK_HOSTS.test(u.hostname)) return u;
 		const r = await fetch(url, { redirect: "manual", headers: { "User-Agent": "Mozilla/5.0" } });
@@ -118,7 +118,7 @@ async function resolveShortLink(rawUrl) {
 		if (!loc) return u;
 		url = new URL(loc, url).toString();
 	}
-	throw new ImportError("Too many redirects.");
+	throw new ImportError("Too many redirects slow down with yo fast ass.");
 }
 
 async function ytApi(path, params) {
@@ -138,7 +138,7 @@ async function ytApi(path, params) {
 			if (r.status !== 403 && r.status !== 400) break;
 		} catch (err) {
 			if (err instanceof ImportError) throw err;
-			console.error("ytApi fetch failed:", err);
+			console.error("fetch failed, doggo didnt fetch:", err);
 		}
 	}
 	throw new ImportError(lastMsg);
@@ -146,7 +146,7 @@ async function ytApi(path, params) {
 
 async function importYouTube(u) {
 	const list = u.searchParams.get("list");
-	if (!list) throw new ImportError("No playlist ID in that YouTube link.");
+	if (!list) throw new ImportError("No playlist id stoopid.");
 	if (/^RD/.test(list)) {
 		throw new ImportError("Please use a regular playlist.");
 	}
@@ -186,14 +186,14 @@ async function importYouTube(u) {
 
 async function importSpotify(u) {
 	const m = u.pathname.match(/(playlist|album)\/([A-Za-z0-9]+)/);
-	if (!m) throw new ImportError("Couldn't read that Spotify link.");
+	if (!m) throw new ImportError("Couldn't read that Spotify link, im blind i told you this.");
 	const r = await fetch("https://open.spotify.com/embed/" + m[1] + "/" + m[2], {
 		headers: { "User-Agent": "Mozilla/5.0" },
 	});
 	if (!r.ok) throw new ImportError("Spotify couldn't find that " + m[1] + " (is it public?).");
 	const html = await r.text();
 	const json = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/s);
-	if (!json) throw new ImportError("Spotify blocked the import.");
+	if (!json) throw new ImportError("Spotify blocked the import, i knew it hates immigrants.");
 	let entity;
 	try {
 		entity = JSON.parse(json[1]).props.pageProps.state.data.entity;
