@@ -15,6 +15,7 @@ type ProviderModels = { provider: string; models: string[] };
 type SavedChat = { id: string; name: string; updatedAt: number; messages: ChatMessage[] };
 type ApiResponse = {
   error?: string | { message?: string };
+  hint?: string;
   providers?: ProviderModels[];
   candidates?: { content?: { parts?: { text?: string }[] } }[];
 };
@@ -35,16 +36,24 @@ onMounted(async () => {
   loadSavedChats();
 
   try {
-    const res = await fetch(API_URL + '?models');
-    if (!res.ok) throw new Error('Models request failed');
+    const res = await fetch(API_URL + '?models', { cache: 'no-store' });
+    if (!res.ok) throw new Error('server answered ' + res.status);
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('json')) {
+      throw new Error('/api/worker did not return JSON, so the request is not reaching the worker');
+    }
+
     const data = (await res.json()) as ApiResponse;
     providers.value = Array.isArray(data.providers) ? data.providers : [];
     const first = providers.value[0];
     if (first && Array.isArray(first.models) && first.models.length) {
       selected.value = first.provider + '|' + first.models[0];
+    } else {
+      error.value = data.hint || 'No models are available. Check your API keys on the server.';
     }
-  } catch {
-    error.value = 'Could not load models.';
+  } catch (err) {
+    error.value = 'Could not load models: ' + (err instanceof Error ? err.message : 'network error');
   }
 });
 
