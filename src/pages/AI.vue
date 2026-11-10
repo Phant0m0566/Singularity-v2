@@ -2,7 +2,7 @@
 import { Send, ChevronDown, Paperclip, Plus, X } from '@lucide/vue';
 import { nextTick, onMounted, ref } from 'vue';
 
-const API_URL = '/api';
+const API_URL = '/api/worker';
 const CHAT_STORAGE_KEY = 'sg-ai-chat-saves-v1';
 const MAX_SAVED_CHATS = 50;
 const MAX_IMAGES = 4;
