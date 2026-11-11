@@ -1,9 +1,3 @@
-# What is Singularity?
-
-# Singularity Is an Unblocked Games Website Made By Yours Truly Singularity! 
-
-**We Have Music,Chat,Games,Browser, And So Much More!**
-
 ## Browser (Scramjet)
 
 The Browser tab runs Scramjet with the libcurl transport. Traffic goes through a wisp server, and the Cloudflare worker (`worker/`) has one built in at `/wisp/`, so it works with no extra setup once the worker is deployed.
