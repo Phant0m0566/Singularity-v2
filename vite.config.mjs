@@ -12,6 +12,14 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
   },
+  server: {
+    proxy: {
+      '/wisp': {
+        target: 'http://localhost:8787',
+        ws: true
+      }
+    }
+  },
   build: {
     outDir: '../dist',
     emptyOutDir: true
