@@ -1,10 +1,11 @@
-app = "singularity-browser"
+app = "singularity-wisp"
 primary_region = "ord"
 
 [build]
 
 [env]
   PORT = "8080"
+  ALLOWED_ORIGINS = "https://singularity-v2.themultiverseeyt.workers.dev"
 
 [http_service]
   internal_port = 8080
