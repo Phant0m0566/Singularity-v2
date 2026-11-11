@@ -46,20 +46,29 @@ function getController() {
   if (controllerPromise) return controllerPromise;
   controllerPromise = (async () => {
     if (!('serviceWorker' in navigator)) throw new Error("This browser doesn't support service workers.");
-    await loadScript(SCRAM_PATHS.scramjetPath);
-    await loadScript('/scram/controller/controller.api.js');
+    const transportUrl = '/libcurl/index.mjs';
+    const scriptsP = loadScript(SCRAM_PATHS.scramjetPath).then(() =>
+      loadScript('/scram/controller/controller.api.js'),
+    );
+    const swP = navigator.serviceWorker
+      .register('/sw.js')
+      .then(() => navigator.serviceWorker.ready);
+    const libcurlP = import(/* @vite-ignore */ transportUrl);
+
+    const [, registration, { default: LibcurlTransport }] = await Promise.all([
+      scriptsP,
+      swP,
+      libcurlP,
+    ]);
+
     const g = globalThis as unknown as {
       $scramjet?: { defaultConfig: Record<string, unknown> };
       $scramjetController?: { Controller: new (opts: Record<string, unknown>) => ScramController };
     };
     if (!g.$scramjet || !g.$scramjetController) throw new Error('Scramjet scripts did not load.');
 
-    await navigator.serviceWorker.register('/sw.js');
-    const registration = await navigator.serviceWorker.ready;
     const serviceworker = navigator.serviceWorker.controller || registration.active;
 
-    const transportUrl = '/libcurl/index.mjs';
-    const { default: LibcurlTransport } = await import(/* @vite-ignore */ transportUrl);
     const transport = new LibcurlTransport({ wisp: wispUrl() });
     await transport.init();
 
