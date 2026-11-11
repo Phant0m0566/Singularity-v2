@@ -1,3 +1,4 @@
+import { handleWispRequest } from "../worker/wisp.js";
 const OBF_KEY = [173, 91, 202, 17, 138, 64, 229, 53];
 
 const ENV = {};
@@ -521,6 +522,10 @@ export default {
         }
 
         const url = new URL(request.url);
+
+        if (url.pathname === "/wisp" || url.pathname.startsWith("/wisp/")) {
+            return handleWispRequest(request, env);
+        }
 		
         if (!url.pathname.startsWith("/api")) {
             if (env && env.ASSETS && typeof env.ASSETS.fetch === "function") {
