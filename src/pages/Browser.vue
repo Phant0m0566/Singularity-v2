@@ -36,7 +36,7 @@ function wispUrl() {
   } catch {}
   const fromEnv = import.meta.env.VITE_WISP_URL as string | undefined;
   if (fromEnv) return fromEnv;
-  // default: the wisp server on fly.io (change this if your app name is different)
+
   return 'wss://singularity-wisp.fly.dev/wisp/';
 }
 
@@ -74,6 +74,8 @@ function getController() {
     const transport = new LibcurlTransport({ wisp: wispUrl() });
     await transport.init();
 
+    // the controller reads these paths from `config`, not `scramjetConfig`,
+    // otherwise it falls back to /scramjet/... and gets index.html back
     const controller = new g.$scramjetController.Controller({
       serviceworker,
       transport,
