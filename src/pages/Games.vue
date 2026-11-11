@@ -1,6 +1,4 @@
 <script lang="ts">
-// lumin can't init again after destroy(), so one host element lives for the
-// whole session and just gets moved in and out of the page
 let luminEl: HTMLElement | null = null;
 let luminReady: Promise<void> | null = null;
 </script>
@@ -18,7 +16,6 @@ type LuminApi = {
 
 const win = window as unknown as { Lumin?: LuminApi };
 
-// lumin's own styles live in a shadow root, so the theme has to be pushed in
 const SHADOW_CSS = `
 :host {
   font-family: inherit;
@@ -66,7 +63,9 @@ const SHADOW_CSS = `
 .lumin-card {
   border: 2px solid var(--sg-border);
   border-radius: 12px;
-  transition: transform 0.16s ease-out, border-color 0.16s ease-out, box-shadow 0.16s ease-out;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 150px;
+  transition: transform 0.16s ease-out, border-color 0.16s ease-out;
 }
 .lumin-card:hover,
 .lumin-card:focus-visible {
