@@ -1,4 +1,4 @@
-app = "singularity-wisp"
+app = "singularity-v2"
 primary_region = "ord"
 
 [build]
