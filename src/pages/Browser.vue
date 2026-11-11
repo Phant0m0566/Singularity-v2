@@ -36,7 +36,8 @@ function wispUrl() {
   } catch {}
   const fromEnv = import.meta.env.VITE_WISP_URL as string | undefined;
   if (fromEnv) return fromEnv;
-  return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/wisp/';
+  // default: the wisp server on fly.io (change this if your app name is different)
+  return 'wss://singularity-wisp.fly.dev/wisp/';
 }
 
 // one controller per page load, the service worker + transport don't like being set up twice
@@ -46,6 +47,7 @@ function getController() {
   if (controllerPromise) return controllerPromise;
   controllerPromise = (async () => {
     if (!('serviceWorker' in navigator)) throw new Error("This browser doesn't support service workers.");
+
     const transportUrl = '/libcurl/index.mjs';
     const scriptsP = loadScript(SCRAM_PATHS.scramjetPath).then(() =>
       loadScript('/scram/controller/controller.api.js'),
@@ -72,8 +74,6 @@ function getController() {
     const transport = new LibcurlTransport({ wisp: wispUrl() });
     await transport.init();
 
-    // the controller reads these paths from `config`, not `scramjetConfig`,
-    // otherwise it falls back to /scramjet/... and gets index.html back
     const controller = new g.$scramjetController.Controller({
       serviceworker,
       transport,
