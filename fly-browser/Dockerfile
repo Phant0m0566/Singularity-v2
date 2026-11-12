@@ -1,8 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY fly-browser/package.json ./
+COPY package.json ./
 RUN npm install --omit=dev
-COPY fly-browser/server.mjs ./
-ENV PORT=8080
-EXPOSE 8080
+COPY server.mjs ./
 CMD ["node", "server.mjs"]
