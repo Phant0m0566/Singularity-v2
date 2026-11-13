@@ -87,7 +87,6 @@ const detailKind = ref<Kind>('movie');
 const cast = ref<Cast[]>([]);
 const similar = ref<Title[]>([]);
 
-// Player
 const showPlayer = ref(false);
 const showTopBar = ref(false);
 let topBarTimer: number | undefined;
@@ -390,7 +389,7 @@ onUnmounted(() => {
 
 <template>
   <div class="watchRoot">
-
+    <!-- FULL-SCREEN PLAYER -->
     <div
       v-if="showPlayer && detail"
       class="playerOverlay"
@@ -514,7 +513,6 @@ onUnmounted(() => {
         </div>
       </template>
     </div>
-
 
     <div v-if="detailOpen" ref="detailEl" class="detail">
       <nav class="nav solid">
@@ -662,6 +660,7 @@ onUnmounted(() => {
   font-family: 'Avenir', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
+/* Player */
 .playerOverlay {
   position: fixed;
   inset: 0;
