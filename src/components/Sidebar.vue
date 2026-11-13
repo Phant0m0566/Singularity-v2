@@ -29,9 +29,9 @@ import { RouterLink } from 'vue-router';
       <RouterLink to="/browser" class="sg-rail-btn" exact-active-class="active" aria-label="Browser">
         <Globe />
       </RouterLink>
-      <button type="button" class="sg-rail-btn" aria-label="Watch">
-         <Play />
-      </button>
+      <RouterLink to="/watch" class="sg-rail-btn" exact-active-class="active" aria-label="Watch">
+        <Play />
+      </RouterLink>
 
       <button type="button" class="sg-rail-btn" aria-label="Music">
          <EighthNote />
