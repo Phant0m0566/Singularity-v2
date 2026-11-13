@@ -16,6 +16,10 @@ const SCRAM_PATHS = {
   injectPath: '/scram/controller/controller.inject.js',
 };
 
+type ProxyTransport = {
+  session: { fetch: (url: string) => Promise<Response> };
+};
+
 const DEFAULT_WISP = 'wss://singularity-v2.fly.dev/wisp/';
 
 function loadScripts(srcs: string[]) {
@@ -46,6 +50,7 @@ function wispUrl() {
 }
 
 let controllerPromise: Promise<ScramController> | null = null;
+let transportRef: ProxyTransport | null = null;
 
 export function getController() {
   if (controllerPromise) return controllerPromise;
@@ -65,6 +70,7 @@ export function getController() {
     );
 
     const [, registration, transport] = await Promise.all([scriptsP, swP, transportP]);
+    transportRef = transport as ProxyTransport;
 
     const g = globalThis as unknown as {
       $scramjet?: { defaultConfig: Record<string, unknown> };
@@ -95,4 +101,16 @@ export function warmUp() {
   };
   if ('requestIdleCallback' in window) window.requestIdleCallback(start);
   else setTimeout(start, 1500);
+}
+
+export async function proxyFetch(url: string): Promise<Response> {
+  await getController();
+  const transport = transportRef;
+  if (!transport) throw new Error('Proxy transport is not ready.');
+  return Promise.race([
+    transport.session.fetch(url),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Proxy request timed out.')), 15000);
+    }),
+  ]);
 }
