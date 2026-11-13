@@ -95,7 +95,6 @@ const cast = ref<Cast[]>([]);
 const similar = ref<Title[]>([]);
 const providers = ref<Region | null>(null);
 
-// Player state (full-screen overlay)
 const showPlayer = ref(false);
 const showTopBar = ref(false);
 let topBarTimer: number | undefined;
@@ -688,7 +687,6 @@ onUnmounted(() => {
   font-family: 'Avenir', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
-/* ========== FULL-SCREEN PLAYER ========== */
 .playerOverlay {
   position: fixed;
   inset: 0;
