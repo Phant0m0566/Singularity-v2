@@ -20,6 +20,11 @@ const router = createRouter({
       component: () => import('@/pages/Browser.vue'),
     },
     {
+      path: '/watch',
+      name: 'watch',
+      component: () => import('@/pages/Watch.vue'),
+    },
+    {
       path: '/chat',
       name: 'chat',
       component: () => import('@/pages/Chat.vue'),
