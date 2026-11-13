@@ -39,7 +39,7 @@ async function tmdb<T>(path: string, params: Record<string, string | number | un
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
   }
-  const res = await fetch(url);
+  const res = await import('../scram').then((m) => m.proxyFetch(url.toString())).catch(() => fetch(url));
   if (!res.ok) throw new Error(`TMDB request failed (${res.status})`);
   return res.json() as Promise<T>;
 }
