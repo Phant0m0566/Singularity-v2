@@ -4,7 +4,7 @@ import { House } from '@lucide/vue';
 import { Globe } from '@lucide/vue';
 import { Bot } from '@lucide/vue';
 import { MessageSquare } from '@lucide/vue';
-import { settings } from '@lucide/vue';
+import { Settings } from '@lucide/vue';
 import { Cloud } from '@lucide/vue';
 import { EighthNote } from '@lucide/vue';
 import { Play } from '@lucide/vue';
