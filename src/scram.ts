@@ -16,12 +16,6 @@ const SCRAM_PATHS = {
   injectPath: '/scram/controller/controller.inject.js',
 };
 
-type ProxyTransport = {
-  session: { fetch: (url: string) => Promise<Response> };
-};
-
-export const proxySettings = { api: true, images: true };
-
 const DEFAULT_WISP = 'wss://singularity-v2.fly.dev/wisp/';
 
 function loadScripts(srcs: string[]) {
@@ -52,7 +46,6 @@ function wispUrl() {
 }
 
 let controllerPromise: Promise<ScramController> | null = null;
-let transportRef: ProxyTransport | null = null;
 
 export function getController() {
   if (controllerPromise) return controllerPromise;
@@ -72,7 +65,6 @@ export function getController() {
     );
 
     const [, registration, transport] = await Promise.all([scriptsP, swP, transportP]);
-    transportRef = transport as ProxyTransport;
 
     const g = globalThis as unknown as {
       $scramjet?: { defaultConfig: Record<string, unknown> };
@@ -103,51 +95,4 @@ export function warmUp() {
   };
   if ('requestIdleCallback' in window) window.requestIdleCallback(start);
   else setTimeout(start, 1500);
-}
-
-export async function proxyFetch(url: string): Promise<Response> {
-  await getController();
-  const transport = transportRef;
-  if (!transport) throw new Error('Proxy transport is not ready.');
-  return Promise.race([
-    transport.session.fetch(url),
-    new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Proxy request timed out.')), 20000);
-    }),
-  ]);
-}
-
-const imageCache = new Map<string, Promise<string>>();
-const imageQueue: (() => void)[] = [];
-let imageActive = 0;
-
-function runImageQueue() {
-  while (imageActive < 6 && imageQueue.length) {
-    imageActive++;
-    const next = imageQueue.shift();
-    next?.();
-  }
-}
-
-export function proxyImage(url: string): Promise<string> {
-  const cached = imageCache.get(url);
-  if (cached) return cached;
-  const job = new Promise<string>((resolve, reject) => {
-    imageQueue.push(() => {
-      proxyFetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error('Image request failed (' + res.status + ')');
-          return res.blob();
-        })
-        .then((blob) => resolve(URL.createObjectURL(blob)), reject)
-        .finally(() => {
-          imageActive--;
-          runImageQueue();
-        });
-    });
-    runImageQueue();
-  });
-  job.catch(() => imageCache.delete(url));
-  imageCache.set(url, job);
-  return job;
 }
