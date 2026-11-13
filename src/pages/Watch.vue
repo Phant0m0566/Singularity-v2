@@ -1,7 +1,8 @@
+
 <script setup lang="ts">
 import { ArrowLeft, ArrowRight } from '@lucide/vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-
+  
 type Genre = { id: number; name: string };
 type Title = {
   id: number;
