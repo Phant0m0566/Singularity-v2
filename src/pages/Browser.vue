@@ -37,7 +37,7 @@ function wispUrl() {
   const fromEnv = import.meta.env.VITE_WISP_URL as string | undefined;
   if (fromEnv) return fromEnv;
 
-  return 'wss://singularity-v2.fly.dev/wisp/';
+  return 'wss://singularity-v2.onrender.com/wisp/';
 }
 
 // one controller per page load, the service worker + transport don't like being set up twice
