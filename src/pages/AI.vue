@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Send, ChevronDown, Paperclip, Plus, X } from '@lucide/vue';
-import { nextTick, onMounted, ref } from 'vue';
+import { Check, ChevronDown, Paperclip, Plus, Send, X } from '@lucide/vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
 const API_URL = '/api/worker';
 const CHAT_STORAGE_KEY = 'sg-ai-chat-saves-v1';
@@ -9,6 +9,8 @@ const MAX_IMAGES = 4;
 const MAX_IMAGE_SIDE = 1280;
 const HISTORY_LIMIT = 30;
 const IMAGE_PLACEHOLDER = 'Image upload';
+const ALLOWED_PROVIDERS = ['groq', 'gemini'];
+const PROVIDER_LABELS: Record<string, string> = { groq: 'Groq', gemini: 'Gemini' };
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string; images?: string[] };
 type ProviderModels = { provider: string; models: string[] };
@@ -31,8 +33,40 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const selectedImages = ref<{ file: File; dataUrl: string }[]>([]);
 const chats = ref<SavedChat[]>([]);
 const activeChatId = ref<string | null>(null);
+const modelOpen = ref(false);
+const modelWrap = ref<HTMLElement | null>(null);
+
+const selectedLabel = computed(() => {
+  const [, model = ''] = selected.value.split('|');
+  return model ? modelLabel(model) : 'No models';
+});
+
+function providerLabel(name: string) {
+  return PROVIDER_LABELS[name.toLowerCase()] || name;
+}
+
+function modelLabel(model: string) {
+  return model.split('/').pop() || model;
+}
+
+function pickModel(provider: string, model: string) {
+  selected.value = provider + '|' + model;
+  modelOpen.value = false;
+}
+
+function onDocClick(event: MouseEvent) {
+  if (modelOpen.value && modelWrap.value && !modelWrap.value.contains(event.target as Node)) {
+    modelOpen.value = false;
+  }
+}
+
+function onDocKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') modelOpen.value = false;
+}
 
 onMounted(async () => {
+  document.addEventListener('click', onDocClick);
+  document.addEventListener('keydown', onDocKey);
   loadSavedChats();
 
   try {
@@ -45,7 +79,13 @@ onMounted(async () => {
     }
 
     const data = (await res.json()) as ApiResponse;
-    providers.value = Array.isArray(data.providers) ? data.providers : [];
+    const list = Array.isArray(data.providers) ? data.providers : [];
+    providers.value = list
+      .filter((p) => ALLOWED_PROVIDERS.includes(p.provider.toLowerCase()))
+      .sort(
+        (a, b) =>
+          ALLOWED_PROVIDERS.indexOf(a.provider.toLowerCase()) - ALLOWED_PROVIDERS.indexOf(b.provider.toLowerCase()),
+      );
     const first = providers.value[0];
     if (first && Array.isArray(first.models) && first.models.length) {
       selected.value = first.provider + '|' + first.models[0];
@@ -55,6 +95,11 @@ onMounted(async () => {
   } catch (err) {
     error.value = 'Could not load models ONLY for you: ' + (err instanceof Error ? err.message : 'network error');
   }
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick);
+  document.removeEventListener('keydown', onDocKey);
 });
 
 function uid() {
@@ -420,21 +465,39 @@ async function send() {
           </div>
 
           <div class="aiComposer">
-            <div class="aiModelWrap">
-              <select
-                v-model="selected"
-                class="aiModelSelect"
-                id="aiModel"
-                name="model"
-                aria-label="Choose model"
+            <div ref="modelWrap" class="aiModelWrap">
+              <button
+                class="aiModelBtn"
+                type="button"
+                aria-haspopup="listbox"
+                :aria-expanded="modelOpen"
                 :disabled="!providers.length"
+                :title="selected.split('|')[1] || ''"
+                @click="modelOpen = !modelOpen"
               >
-                <option v-if="!providers.length" value="" disabled>No models</option>
-                <optgroup v-for="p in providers" :key="p.provider" :label="p.provider">
-                  <option v-for="m in p.models" :key="m" :value="p.provider + '|' + m">{{ m }}</option>
-                </optgroup>
-              </select>
-              <ChevronDown class="aiModelChevron" :size="16" />
+                <span class="aiModelText">{{ selectedLabel }}</span>
+                <ChevronDown class="aiModelChevron" :class="{ open: modelOpen }" :size="16" />
+              </button>
+
+              <div v-if="modelOpen" class="aiModelMenu" role="listbox" aria-label="Choose model">
+                <template v-for="p in providers" :key="p.provider">
+                  <div class="aiModelGroup">{{ providerLabel(p.provider) }}</div>
+                  <button
+                    v-for="m in p.models"
+                    :key="m"
+                    type="button"
+                    class="aiModelItem"
+                    :class="{ active: selected === p.provider + '|' + m }"
+                    role="option"
+                    :aria-selected="selected === p.provider + '|' + m"
+                    :title="m"
+                    @click="pickModel(p.provider, m)"
+                  >
+                    <span class="aiModelItemText">{{ modelLabel(m) }}</span>
+                    <Check v-if="selected === p.provider + '|' + m" :size="14" />
+                  </button>
+                </template>
+              </div>
             </div>
 
             <label class="aiAttachBtn" title="Upload image">
@@ -471,6 +534,9 @@ async function send() {
 
 <style scoped>
 .aiPage {
+  --ctl-h: 48px;
+  --ctl-r: 10px;
+
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -506,10 +572,10 @@ async function send() {
   justify-content: center;
   gap: 8px;
   width: 100%;
-  height: 42px;
+  height: 44px;
   padding: 0 12px;
   border: 2px solid var(--sg-border);
-  border-radius: 8px;
+  border-radius: var(--ctl-r);
   background: var(--sg-surface);
   color: var(--sg-text);
   font-size: 0.95rem;
@@ -534,25 +600,29 @@ async function send() {
 }
 
 .aiChatItem {
+  display: block;
+  flex-shrink: 0;
   width: 100%;
-  display: flex;
-  align-items: center;
-  padding: 10px 12px;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 12px;
   border: 1px solid var(--sg-border);
-  border-radius: 8px;
+  border-radius: var(--ctl-r);
   background: transparent;
   color: var(--sg-text);
-  text-align: left;
-  cursor: pointer;
   font-family: inherit;
   font-size: 0.9rem;
+  line-height: 38px;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
 }
 
 .aiChatItem.active {
-  background: var(--sg-surface);
+  border-color: var(--sg-accent);
+  background: var(--sg-surface-hover);
 }
 
 .aiChat {
@@ -571,10 +641,10 @@ async function send() {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 36px;
-  padding: 0 12px;
+  height: 40px;
+  padding: 0 14px;
   border: 2px solid var(--sg-border);
-  border-radius: 8px;
+  border-radius: var(--ctl-r);
   background: var(--sg-surface);
   color: var(--sg-text);
   font-size: 0.9rem;
@@ -586,11 +656,11 @@ async function send() {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-height: 0;
   overflow-y: auto;
   box-sizing: border-box;
-  padding: 18px clamp(14px, 3vw, 32px) 14px;
+  padding: 18px max(clamp(14px, 3vw, 32px), calc((100% - 900px) / 2)) 14px;
 }
 
 .aiMsg {
@@ -630,8 +700,11 @@ async function send() {
 }
 
 .aiError {
+  align-self: center;
+  max-width: 85%;
   color: var(--sg-text-muted);
   font-size: 0.9rem;
+  text-align: center;
 }
 
 .aiEmptyState {
@@ -641,6 +714,7 @@ async function send() {
   flex: 1;
   padding: 20px;
   color: var(--sg-text-muted);
+  text-align: center;
 }
 
 .aiEmptyTitle {
@@ -710,54 +784,123 @@ async function send() {
 
 .aiModelWrap {
   position: relative;
+  flex: 0 0 auto;
+  width: 200px;
+}
+
+.aiModelBtn {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: var(--ctl-h);
+  box-sizing: border-box;
+  padding: 0 12px 0 14px;
+  border: 2px solid var(--sg-border);
+  border-radius: var(--ctl-r);
+  background: var(--sg-surface);
+  color: var(--sg-text);
+  font-family: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.aiModelBtn[aria-expanded='true'] {
+  border-color: var(--sg-accent);
+}
+
+.aiModelBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.aiModelText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .aiModelChevron {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  transform: translateY(-50%);
+  flex-shrink: 0;
   color: var(--sg-text-muted);
-  pointer-events: none;
+  transition: transform 0.15s ease;
 }
 
-.aiModelSelect {
-  -webkit-appearance: none;
-  appearance: none;
-  flex-shrink: 0;
-  max-width: 160px;
-  height: 50px;
-  padding: 0 34px 0 14px;
-  line-height: 46px;
+.aiModelChevron.open {
+  transform: rotate(180deg);
+}
+
+.aiModelMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: max(100%, 260px);
+  max-width: min(340px, 86vw);
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
   box-sizing: border-box;
+  padding: 6px;
   border: 2px solid var(--sg-border);
-  border-radius: 6px;
+  border-radius: var(--ctl-r);
   background: var(--sg-surface);
+  box-shadow: 0 10px 28px var(--sg-shadow-strong);
+}
+
+.aiModelGroup {
+  padding: 8px 10px 4px;
+  color: var(--sg-text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.aiModelItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: var(--sg-text);
-  font-size: 1rem;
   font-family: inherit;
+  font-size: 0.95rem;
+  text-align: left;
   cursor: pointer;
 }
 
-.aiModelSelect:focus {
-  outline: none;
+.aiModelItem.active {
+  background: var(--sg-surface-hover);
+}
+
+.aiModelItemText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .aiAttachBtn {
-  width: 42px;
-  height: 42px;
-  border: 2px solid var(--sg-border);
-  border-radius: 6px;
-  background: var(--sg-surface);
-  color: var(--sg-text-muted);
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  width: var(--ctl-h);
+  height: var(--ctl-h);
+  box-sizing: border-box;
+  border: 2px solid var(--sg-border);
+  border-radius: var(--ctl-r);
+  background: var(--sg-surface);
+  color: var(--sg-text-muted);
   cursor: pointer;
-  flex-shrink: 0;
 }
 
 .aiAttachBtn input {
@@ -767,20 +910,15 @@ async function send() {
 .aiInput {
   flex: 1;
   min-width: 0;
-  resize: none;
-  padding: 12px 16px;
+  height: var(--ctl-h);
+  box-sizing: border-box;
+  padding: 0 16px;
   border: 2px solid var(--sg-border);
-  border-radius: 6px;
+  border-radius: var(--ctl-r);
   background: var(--sg-surface);
   color: var(--sg-text);
-  font-size: 1rem;
   font-family: inherit;
-  height: 50px;
-  max-height: 50px;
-  width: 100%;
-  overflow: hidden;
-  box-sizing: border-box;
-  line-height: 26px;
+  font-size: 1rem;
 }
 
 .aiInput::placeholder {
@@ -789,6 +927,7 @@ async function send() {
 }
 
 .aiInput:focus {
+  border-color: var(--sg-accent);
   outline: none;
 }
 
@@ -797,12 +936,12 @@ async function send() {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 50px;
-  height: 50px;
+  width: var(--ctl-h);
+  height: var(--ctl-h);
   padding: 0;
   box-sizing: border-box;
   border: 2px solid var(--sg-border);
-  border-radius: 6px;
+  border-radius: var(--ctl-r);
   background: var(--sg-surface);
   color: var(--sg-accent-soft);
   font-size: 1.1rem;
@@ -811,6 +950,8 @@ async function send() {
 }
 
 .sendBtn .sendIcon {
+  width: 20px;
+  height: 20px;
   color: var(--sg-text-muted);
 }
 
@@ -850,9 +991,12 @@ async function send() {
     padding: 8px 10px 0;
   }
 
-  .aiModelSelect {
-    max-width: 110px;
-    padding: 0 28px 0 10px;
+  .aiPage {
+    --ctl-h: 44px;
+  }
+
+  .aiModelWrap {
+    width: 120px;
   }
 
   .aiComposer {
@@ -862,5 +1006,6 @@ async function send() {
 
 @media (prefers-reduced-motion: reduce) {
   .aiInputArea { animation: none; }
+  .aiModelChevron { transition: none; }
 }
 </style>
