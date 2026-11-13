@@ -1,8 +1,7 @@
-
 <script setup lang="ts">
 import { ArrowLeft, ArrowRight } from '@lucide/vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-  
+
 type Genre = { id: number; name: string };
 type Title = {
   id: number;
@@ -26,8 +25,6 @@ type Detail = Title & {
   production_companies?: { id: number; name: string }[];
 };
 type Cast = { id: number; name: string; character?: string; profile_path?: string | null };
-type Provider = { provider_id: number; provider_name: string; logo_path?: string | null };
-type Region = { link?: string; flatrate?: Provider[]; rent?: Provider[]; buy?: Provider[] };
 type Row = { name: string; items: Title[] };
 type Listing = { results?: Title[]; total_pages?: number };
 type Kind = 'movie' | 'tv';
@@ -63,11 +60,6 @@ function money(n: number) {
   return '$' + (n / 1_000_000).toFixed(1) + 'M';
 }
 
-function userRegion() {
-  const match = navigator.language.match(/-([A-Za-z]{2})$/);
-  return match ? match[1].toUpperCase() : 'US';
-}
-
 const tab = ref<'movies' | 'shows'>('movies');
 const kind = computed<Kind>(() => (tab.value === 'movies' ? 'movie' : 'tv'));
 const query = ref('');
@@ -94,8 +86,8 @@ const detail = ref<Detail | null>(null);
 const detailKind = ref<Kind>('movie');
 const cast = ref<Cast[]>([]);
 const similar = ref<Title[]>([]);
-const providers = ref<Region | null>(null);
 
+// Player
 const showPlayer = ref(false);
 const showTopBar = ref(false);
 let topBarTimer: number | undefined;
@@ -113,9 +105,7 @@ const showHero = computed(() => !query.value.trim() && heroSlides.value.length >
 const playerSrc = computed(() => {
   if (!detail.value) return '';
   const id = detail.value.id;
-  if (detailKind.value === 'movie') {
-    return `https://vidcore.io/movie/${id}`;
-  }
+  if (detailKind.value === 'movie') return `https://vidcore.io/movie/${id}`;
   return `https://vidcore.io/tv/${id}/1/1`;
 });
 
@@ -129,16 +119,6 @@ const sections = computed<{ name: string; items: Title[]; grid: boolean }[]>(() 
     for (const row of extraRows.value) list.push({ name: row.name, items: row.items, grid: false });
   }
   return list;
-});
-
-const providerGroups = computed(() => {
-  const p = providers.value;
-  if (!p) return [];
-  return [
-    { label: 'Stream', items: p.flatrate ?? [] },
-    { label: 'Rent', items: p.rent ?? [] },
-    { label: 'Buy', items: p.buy ?? [] },
-  ].filter((g) => g.items.length);
 });
 
 function showToast(message: string) {
@@ -200,6 +180,13 @@ function onPlayerMouseMove() {
   topBarTimer = window.setTimeout(() => {
     showTopBar.value = false;
   }, 2500);
+}
+
+function scrollRow(e: Event, direction: number) {
+  const btn = e.currentTarget as HTMLElement;
+  const track = btn.closest('.row')?.querySelector('.rowTrack') as HTMLElement | null;
+  if (!track) return;
+  track.scrollBy({ left: direction * 600, behavior: 'smooth' });
 }
 
 async function fetchGenres() {
@@ -333,7 +320,7 @@ async function changePage(next: number) {
   if (query.value.trim()) await searchContent();
   else await fetchContent();
   scroller.value?.querySelectorAll('.rowTrack').forEach((el) => {
-    el.scrollLeft = 0;
+    (el as HTMLElement).scrollLeft = 0;
   });
   scroller.value?.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -348,23 +335,18 @@ async function openDetail(id: number, k: Kind) {
   detail.value = null;
   cast.value = [];
   similar.value = [];
-  providers.value = null;
   await nextTick();
   detailEl.value?.scrollTo({ top: 0 });
   try {
-    const [info, credits, more, prov] = await Promise.all([
+    const [info, credits, more] = await Promise.all([
       tmdb<Detail>(`/${k}/${id}`),
       tmdb<{ cast?: Cast[] }>(`/${k}/${id}/credits`).catch(() => ({ cast: [] as Cast[] })),
       tmdb<Listing>(`/${k}/${id}/similar`).catch(() => ({ results: [] as Title[] })),
-      tmdb<{ results?: Record<string, Region> }>(`/${k}/${id}/watch/providers`).catch(() => ({
-        results: {} as Record<string, Region>,
-      })),
     ]);
     if (seq !== detailSeq) return;
     detail.value = info;
     cast.value = credits.cast ?? [];
     similar.value = more.results ?? [];
-    providers.value = prov.results?.[userRegion()] ?? null;
   } catch (err) {
     if (seq !== detailSeq) return;
     detailError.value = err instanceof Error ? err.message : 'Could not load this title.';
@@ -408,7 +390,7 @@ onUnmounted(() => {
 
 <template>
   <div class="watchRoot">
-    
+
     <div
       v-if="showPlayer && detail"
       class="playerOverlay"
@@ -495,7 +477,13 @@ onUnmounted(() => {
       </div>
       <template v-else>
         <section v-for="s in sections" :key="s.name" class="row">
-          <h2 class="rowTitle">{{ s.name }}</h2>
+          <div class="rowHeader">
+            <h2 class="rowTitle">{{ s.name }}</h2>
+            <div v-if="!s.grid" class="rowControls">
+              <button type="button" class="rowBtn" @click="scrollRow($event, -1)">‹</button>
+              <button type="button" class="rowBtn" @click="scrollRow($event, 1)">›</button>
+            </div>
+          </div>
           <div :class="s.grid ? 'grid' : 'rowTrack'">
             <button v-for="item in s.items" :key="item.id" type="button" class="card" @click="openDetail(item.id, kind)">
               <img
@@ -525,8 +513,8 @@ onUnmounted(() => {
           </button>
         </div>
       </template>
-      
     </div>
+
 
     <div v-if="detailOpen" ref="detailEl" class="detail">
       <nav class="nav solid">
@@ -572,23 +560,6 @@ onUnmounted(() => {
               <div class="pills">
                 <span v-for="g in detail.genres" :key="g.id" class="pill">{{ g.name }}</span>
               </div>
-            </section>
-
-            <section class="block">
-              <h3>Where to watch</h3>
-              <template v-if="providerGroups.length">
-                <div v-for="group in providerGroups" :key="group.label" class="provGroup">
-                  <span class="provLabel">{{ group.label }}</span>
-                  <span v-for="p in group.items" :key="p.provider_id" class="prov">
-                    <img v-if="p.logo_path" :src="IMG + 'w92' + p.logo_path" alt="" loading="lazy" />
-                    {{ p.provider_name }}
-                  </span>
-                </div>
-                <a v-if="providers?.link" class="btn" :href="providers.link" target="_blank" rel="noopener noreferrer">
-                  See all options
-                </a>
-              </template>
-              <p v-else class="muted">No info for your region.</p>
             </section>
 
             <section v-if="cast.length" class="block">
@@ -664,18 +635,21 @@ onUnmounted(() => {
 
 <style scoped>
 .watchRoot {
-  --bh-bg: var(--sg-page-bg);
-  --bh-panel: var(--sg-surface);
-  --bh-card: var(--sg-surface-raised);
-  --bh-border: var(--sg-border);
-  --bh-input: var(--sg-surface-raised);
-  --bh-input-border: var(--sg-border);
-  --bh-muted: var(--sg-text-muted);
-  --bh-text: var(--sg-text);
-  --bh-accent: var(--sg-accent-light);
-  --bh-accent-hover: color-mix(in srgb, var(--sg-accent-light) 70%, white);
-  --bh-cyan: var(--sg-accent-soft);
-  --bh-line: var(--sg-accent-soft);
+  --bh-bg: #0f0a1a;
+  --bh-panel: #1a1229;
+  --bh-card: #241a36;
+  --bh-border: #3d2a55;
+  --bh-input: #241a36;
+  --bh-input-border: #3d2a55;
+  --bh-muted: #b8a9c9;
+  --bh-text: #f0e6ff;
+  --bh-accent: #c084fc;
+  --bh-accent-hover: #d8b4fe;
+  --bh-cyan: #a78bfa;
+  --bh-line: #a78bfa;
+  --sg-page-bg: #0f0a1a;
+  --sg-shadow-soft: rgba(0, 0, 0, 0.35);
+  --sg-accent: #7c3aed;
 
   position: relative;
   display: flex;
@@ -694,13 +668,11 @@ onUnmounted(() => {
   z-index: 9999;
   background: #000;
 }
-
 .playerIframe {
   width: 100%;
   height: 100%;
   border: none;
 }
-
 .playerTopbar {
   position: absolute;
   top: 0;
@@ -717,16 +689,14 @@ onUnmounted(() => {
   transition: opacity 0.25s;
   pointer-events: none;
 }
-
 .playerTopbar.show {
   opacity: 1;
   pointer-events: auto;
 }
-
 .playerExit {
-  background: #000;
-  border: 1px solid #f9f9f9;
-  color: #fff;
+  background: #1a1229;
+  border: 1px solid #c084fc;
+  color: #f0e6ff;
   padding: 8px 16px;
   border-radius: 4px;
   font-size: 13px;
@@ -736,10 +706,9 @@ onUnmounted(() => {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-
 .playerExit:hover {
-  background: #f9f9f9;
-  color: #000;
+  background: #c084fc;
+  color: #0f0a1a;
 }
 
 .watchPage {
@@ -763,24 +732,19 @@ onUnmounted(() => {
   padding: 0 36px;
   transition: background 0.3s ease;
 }
-
 .nav.clear {
-  background: rgb(21 19 41 / 78%);
+  background: rgb(26 18 41 / 85%);
 }
-
 .nav.solid {
   background: var(--bh-panel);
 }
-
 .watchPage:not(.noHero) .nav {
   margin-bottom: -70px;
 }
-
 .navLinks {
   display: flex;
   gap: 28px;
 }
-
 .navLinks button {
   position: relative;
   padding: 6px 0;
@@ -793,7 +757,6 @@ onUnmounted(() => {
   text-transform: uppercase;
   cursor: pointer;
 }
-
 .navLinks button::after {
   content: '';
   position: absolute;
@@ -807,13 +770,11 @@ onUnmounted(() => {
   transform-origin: left;
   transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
-
 .navLinks button:hover::after,
 .navLinks button.active::after {
   opacity: 1;
   transform: scaleX(1);
 }
-
 .navRight {
   display: flex;
   align-items: center;
@@ -833,15 +794,12 @@ onUnmounted(() => {
   font-size: 13px;
   outline: none;
 }
-
 .field:focus {
   border-color: var(--bh-cyan);
 }
-
 .field::placeholder {
   color: var(--bh-muted);
 }
-
 select.field {
   cursor: pointer;
 }
@@ -864,28 +822,23 @@ select.field {
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease;
 }
-
 .btn:hover:not(:disabled) {
   background: var(--bh-accent-hover);
 }
-
 .btn.ghost {
   border: 1px solid var(--bh-line);
   background: var(--bh-card);
   color: var(--bh-text);
 }
-
 .btn.ghost:hover:not(:disabled) {
   background: var(--bh-accent);
   color: var(--sg-page-bg);
 }
-
 .btn.small {
   padding: 0.5rem 1.25rem;
   font-size: 0.85rem;
   font-weight: 500;
 }
-
 .btn:disabled {
   opacity: 0.4;
   cursor: default;
@@ -897,7 +850,6 @@ select.field {
   height: clamp(340px, 46vw, 72vh);
   overflow: hidden;
 }
-
 .heroBg {
   position: absolute;
   inset: 0;
@@ -907,19 +859,16 @@ select.field {
   opacity: 0;
   transition: opacity 1.2s ease-in-out;
 }
-
 .heroBg.active {
   opacity: 1;
 }
-
 .heroShade {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgb(8 6 22 / 80%), rgb(8 6 22 / 12%)),
-    linear-gradient(0deg, rgb(8 6 22 / 76%), transparent 75%);
+    linear-gradient(90deg, rgb(15 10 26 / 85%), rgb(15 10 26 / 15%)),
+    linear-gradient(0deg, rgb(15 10 26 / 80%), transparent 75%);
 }
-
 .heroText {
   position: absolute;
   bottom: 22%;
@@ -927,24 +876,20 @@ select.field {
   z-index: 2;
   max-width: 38%;
 }
-
 .heroFade-enter-active,
 .heroFade-leave-active {
   transition: opacity 0.4s;
 }
-
 .heroFade-enter-from,
 .heroFade-leave-to {
   opacity: 0;
 }
-
 .heroTitle {
   margin: 0 0 1rem;
   font-size: clamp(1.8rem, 4.2vw, 3.4rem);
   font-weight: 800;
   line-height: 1.1;
 }
-
 .heroDesc {
   display: -webkit-box;
   margin: 0 0 1.25rem;
@@ -955,7 +900,6 @@ select.field {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
-
 .heroDots {
   position: absolute;
   bottom: 14%;
@@ -965,7 +909,6 @@ select.field {
   gap: 8px;
   transform: translateX(-50%);
 }
-
 .heroDot {
   width: 8px;
   height: 8px;
@@ -976,7 +919,6 @@ select.field {
   cursor: pointer;
   transition: all 0.2s;
 }
-
 .heroDot.active {
   width: 22px;
   border-radius: 4px;
@@ -986,13 +928,22 @@ select.field {
 .row {
   margin-bottom: 1.5rem;
 }
-
 .hero + .row {
   position: relative;
   z-index: 10;
   margin-top: -6vw;
 }
-
+.rowHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 36px;
+  margin-bottom: 0.2rem;
+}
+.rowHeader .rowTitle {
+  padding: 0;
+  margin: 0;
+}
 .rowTitle {
   margin: 0 0 0.2rem;
   padding: 0 36px;
@@ -1001,7 +952,28 @@ select.field {
   font-weight: 700;
   letter-spacing: 0.4px;
 }
-
+.rowControls {
+  display: flex;
+  gap: 8px;
+}
+.rowBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--bh-border);
+  background: var(--bh-card);
+  color: var(--bh-text);
+  font-size: 20px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.rowBtn:hover {
+  background: var(--bh-accent);
+  border-color: var(--bh-accent);
+  color: var(--bh-bg);
+}
 .rowTrack {
   display: flex;
   gap: 16px;
@@ -1010,28 +982,23 @@ select.field {
   scroll-behavior: smooth;
   scrollbar-width: none;
 }
-
 .rowTrack::-webkit-scrollbar {
   display: none;
 }
-
 .rowTrack .card {
   flex: 0 0 auto;
   width: 140px;
 }
-
 @media (min-width: 500px) {
   .rowTrack .card {
     width: 160px;
   }
 }
-
 @media (min-width: 800px) {
   .rowTrack .card {
     width: 185px;
   }
 }
-
 @media (min-width: 1100px) {
   .rowTrack .card {
     width: 210px;
@@ -1044,19 +1011,16 @@ select.field {
   padding: 18px 36px 26px;
   grid-template-columns: repeat(2, 1fr);
 }
-
 @media (min-width: 500px) {
   .grid {
     grid-template-columns: repeat(3, 1fr);
   }
 }
-
 @media (min-width: 800px) {
   .grid {
     grid-template-columns: repeat(4, 1fr);
   }
 }
-
 @media (min-width: 1100px) {
   .grid {
     grid-template-columns: repeat(6, 1fr);
@@ -1078,7 +1042,6 @@ select.field {
   cursor: pointer;
   transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94), border-color 0.25s;
 }
-
 .card:hover,
 .card:focus-visible {
   z-index: 20;
@@ -1086,14 +1049,12 @@ select.field {
   outline: none;
   transform: scale(1.05);
 }
-
 .cardImg {
   display: block;
   width: 100%;
   aspect-ratio: 2 / 3;
   object-fit: cover;
 }
-
 .cardMono {
   display: grid;
   width: 100%;
@@ -1104,30 +1065,26 @@ select.field {
   font-size: 2rem;
   font-weight: 700;
 }
-
 .cardInfo {
   position: absolute;
   right: 0;
   bottom: 0;
   left: 0;
   padding: 10px;
-  background: rgb(8 6 22 / 90%);
+  background: rgb(15 10 26 / 92%);
   opacity: 0;
   transition: opacity 0.2s;
 }
-
 .card:hover .cardInfo,
 .card:focus-visible .cardInfo {
   opacity: 1;
 }
-
 .cardName {
   display: block;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.3;
 }
-
 .cardMeta {
   display: block;
   margin-top: 4px;
@@ -1155,37 +1112,27 @@ select.field {
   color: var(--bh-muted);
   text-align: center;
 }
-
 .note p {
   margin: 0;
 }
-
 .noteBig {
   margin-bottom: 8px !important;
   font-size: 1.1rem;
 }
-
 .errorText {
   margin-bottom: 16px !important;
   color: #ffc1d1;
   font-size: 1.1rem;
 }
-
 .muted {
   color: var(--bh-muted);
 }
-
 .credit {
   margin: 24px 0 0;
   padding: 0 16px;
   color: var(--bh-muted);
   font-size: 12px;
   text-align: center;
-}
-
-.credit.left {
-  padding: 0;
-  text-align: left;
 }
 
 .detail {
@@ -1197,18 +1144,15 @@ select.field {
   padding-bottom: 3rem;
   background: var(--bh-bg);
 }
-
 .detail .nav {
   margin-bottom: 0;
 }
-
 .detailHero {
   position: relative;
   width: 100%;
   height: clamp(380px, 65vh, 80vh);
   overflow: hidden;
 }
-
 .detailBackdrop {
   position: absolute;
   inset: 0;
@@ -1216,7 +1160,6 @@ select.field {
   height: 100%;
   object-fit: cover;
 }
-
 .detailHeroText {
   position: absolute;
   right: 0;
@@ -1225,14 +1168,12 @@ select.field {
   max-width: 720px;
   padding: 24px clamp(24px, 4vw, 56px) clamp(40px, 5vw, 72px);
 }
-
 .detailTitle {
   margin: 0 0 12px;
   font-size: clamp(1.8rem, 3.6vw, 3rem);
   font-weight: 700;
   line-height: 1.15;
 }
-
 .meta {
   display: flex;
   flex-wrap: wrap;
@@ -1242,12 +1183,10 @@ select.field {
   color: var(--bh-muted);
   font-size: 0.9rem;
 }
-
 .accent {
   color: var(--bh-cyan);
   font-weight: 600;
 }
-
 .detailOverview {
   max-width: 36rem;
   margin: 0 0 1.5rem;
@@ -1255,7 +1194,6 @@ select.field {
   font-size: 1rem;
   line-height: 1.65;
 }
-
 .detailBody {
   display: grid;
   max-width: 72rem;
@@ -1263,30 +1201,25 @@ select.field {
   padding: 40px clamp(24px, 4vw, 56px);
   grid-template-columns: minmax(0, 1fr);
 }
-
 @media (min-width: 900px) {
   .detailBody {
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   }
 }
-
 .block {
   margin-bottom: 32px;
 }
-
 .block h3 {
   margin: 0 0 14px;
   color: var(--bh-muted);
   font-size: 0.9rem;
   font-weight: 500;
 }
-
 .pills {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-
 .pill {
   padding: 4px 12px;
   border: 1px solid var(--bh-input-border);
@@ -1296,44 +1229,8 @@ select.field {
   letter-spacing: 1px;
   text-transform: uppercase;
 }
-
 .pill:hover {
   border-color: var(--bh-cyan);
-}
-
-.provGroup {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.provLabel {
-  width: 56px;
-  color: var(--bh-muted);
-  font-size: 0.85rem;
-}
-
-.prov {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px 4px 4px;
-  border: 1px solid var(--bh-input-border);
-  border-radius: 4px;
-  background: var(--bh-input);
-  font-size: 0.85rem;
-}
-
-.prov img {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-}
-
-.block .btn {
-  margin-top: 6px;
 }
 
 .castRow {
@@ -1343,11 +1240,9 @@ select.field {
   padding-bottom: 8px;
   scrollbar-width: none;
 }
-
 .castRow::-webkit-scrollbar {
   display: none;
 }
-
 .person {
   display: flex;
   flex: 0 0 auto;
@@ -1356,7 +1251,6 @@ select.field {
   width: 80px;
   text-align: center;
 }
-
 .personImg {
   width: 80px;
   height: 80px;
@@ -1365,14 +1259,12 @@ select.field {
   background: var(--bh-input);
   object-fit: cover;
 }
-
 .personMono {
   display: grid;
   place-items: center;
   color: var(--bh-muted);
   font-weight: 700;
 }
-
 .personName {
   display: -webkit-box;
   overflow: hidden;
@@ -1381,7 +1273,6 @@ select.field {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
 }
-
 .personRole {
   display: -webkit-box;
   overflow: hidden;
@@ -1396,19 +1287,16 @@ select.field {
   gap: 12px;
   grid-template-columns: repeat(2, 1fr);
 }
-
 @media (min-width: 500px) {
   .similarGrid {
     grid-template-columns: repeat(3, 1fr);
   }
 }
-
 @media (min-width: 800px) {
   .similarGrid {
     grid-template-columns: repeat(4, 1fr);
   }
 }
-
 .similarCard {
   padding: 0;
   overflow: hidden;
@@ -1419,7 +1307,6 @@ select.field {
   text-align: left;
   cursor: pointer;
 }
-
 .similarImg {
   display: block;
   width: 100%;
@@ -1428,11 +1315,9 @@ select.field {
   object-fit: cover;
   transition: opacity 0.2s;
 }
-
 .similarCard:hover .similarImg {
   opacity: 0.8;
 }
-
 .similarName {
   display: -webkit-box;
   margin-top: 6px;
@@ -1449,13 +1334,11 @@ select.field {
   gap: 20px;
   font-size: 0.9rem;
 }
-
 .facts > div {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-
 .factValue {
   color: var(--bh-text);
 }
@@ -1481,42 +1364,36 @@ select.field {
     left: 20px;
     max-width: 85%;
   }
-
   .nav {
     padding: 0 16px;
   }
 }
-
 @media (max-width: 639px) {
   .nav {
     gap: 8px;
   }
-
   .navLinks {
     gap: 14px;
   }
-
   .navRight {
     flex: 1;
     min-width: 0;
     gap: 6px;
   }
-
   .navRight .field:first-child {
     flex: 1 1 0;
     width: 0;
     min-width: 0;
   }
-
   .navRight select {
     min-width: 0;
     max-width: 78px;
   }
-
+  .rowHeader,
   .rowTitle {
-    padding: 0 16px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
-
   .rowTrack,
   .grid {
     padding-right: 16px;
@@ -1525,24 +1402,12 @@ select.field {
 }
 
 @keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.45;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
-
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1550,14 +1415,12 @@ select.field {
   .skeleton {
     animation: none;
   }
-
   .card,
   .heroBg,
   .heroDot,
   .navLinks button::after {
     transition: none;
   }
-
   .card:hover,
   .card:focus-visible {
     transform: none;
